@@ -1,0 +1,38 @@
+# WipeOS: OKRs
+
+Weekly objectives and key results. I write OKRs one week at a time; the current week is at the top and past weeks move to the archive below.
+
+**Editing rules.** Claude Code may tick a key result it completed, adding a one-line note of the evidence, and may add progress notes under a key result. It does not add, remove or reword objectives or key results.
+
+## Week of Oct 19, 2026
+
+**O1. Stand up a minimal WipeOS image and VM harness.**
+
+- [x] **KR1.1** Choose a minimal x86_64 linux kernel base and remove any unnecessary modules from it.
+  - **Done.** Chose Buildroot with glibc, the initramfs linked into the kernel and the disk root filesystem off (D21), starting from Buildroot's QEMU x86_64 config. Removed graphics, sound, USB, wireless, Bluetooth and disk and network filesystems; kept serial console, PCI, virtio, NVMe, networking, kexec and module support. The kernel shrank from 14.8 MB to 13.0 MB, and memory not free in a 1 GiB VM fell from 53.2 MB to 51.3 MB. Key finding: the kernel's per-page bookkeeping is about 16 MB here, 1.6% of RAM. Later use of large (2 MB) and huge (1 GB) pages should solve this problem.
+- [ ] **KR1.2** The stripped-down kernel and initramfs boot in a VM to a userspace stub that prints the memory map. The kernel and initramfs sizes are recorded as the first entries in the residual ledger.
+- [ ] **KR1.3** Design harness. It covers how a VM is launched with configurable guest RAM, how boot and wipe logs are captured, and where architecture-specific code sits (D17).
+- [ ] **KR1.4** One command launches the image in QEMU and collects its boot log.
+
+**O2. Finalize the plan for streaming labels back to the verifier (D18).**
+
+- [ ] **KR2.1** Clone Amodo's open-source GPU label-generation code. Built and run it on a single GPU. Understand the specifics of its label-generation algorithm and whether that fits with my label-streaming idea.
+- [ ] **KR2.2** Answer this question: which labels in the DAG need to be streamed back to the challenge server for it to be able to theoretically challenge every node on the graph?
+- [ ] **KR2.3** Specify streaming protocol: label size, fingerprint size, how the server picks and keeps neighborhoods, batching, and query format.
+
+**O3. Share the design and get feedback.**
+
+- [ ] **KR3.1** Walk Landy, my mentor, through the design, and the feedback is recorded in this doc.
+- [ ] **KR3.2** Ask around the Lucid network for systems engineers who can review the design.
+- [ ] **KR3.3** Read up on the Linux kernel internals this design depends on, such as kexec, memory management and the boot path.
+
+**O4. Write the first erasure code: wipe a few pages of DRAM and stream back their fingerprints.**
+
+- [ ] **KR4.1** A userspace program fills a small DRAM buffer, a few pages, with labels derived from a seed. A placeholder label function, such as a keyed hash per page, sits behind a label-generation interface so Amodo's construction can replace it later.
+- [ ] **KR4.2** As each label is written, its fingerprint (D18) is streamed to stdout in batches, in a format documented in `docs/research/label-verification.md`.
+- [ ] **KR4.3** A verifier stub reads the fingerprint stream, keeps a random sample, queries those pages, and checks the returned labels against the kept fingerprints. Program and stub can run as two processes joined by a pipe.
+- [ ] **KR4.4** The program runs as the userspace stub in the KR1.2 image, and logs per-phase timings and the pages it did not fill to the residual ledger (D20).
+
+## Archive
+
+No past weeks yet.

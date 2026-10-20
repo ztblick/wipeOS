@@ -1,0 +1,2 @@
+# Upstream Buildroot checkout and its build output; each developer clones it (see README.md)
+buildroot/
