@@ -64,7 +64,47 @@ Without installed taps, Pod-PoComp has nothing to anchor to, and this design doe
 
 The proposed architecture splits the work between the auditor side and each pod host. The auditor's manifest fixes what gets wiped, and the challenge server checks that it was. WipeOS on each host discovers its devices, runs the device wipers in parallel, and returns the certificate.
 
-*(Diagram to be redrawn: "WipeOS components · auditor side and one pod host". The original is in the retired Claude Doc.)*
+```mermaid
+---
+title: Each host wipes against an auditor-held manifest and answers a fresh challenge
+---
+flowchart TB
+    subgraph auditor["Auditor side"]
+        manifest["Pod manifest<br/>Signed list of devices<br/>Source of target W"]
+        tap["Gateway/Network Tap<br/>Cuts pod traffic at t_i<br/>Logs certificate E"]
+        chal["Challenge server<br/>Issues fresh challenge χ<br/>Samples, checks openings"]
+    end
+
+    subgraph podnode["Each node in the pod (18 per NVL72)"]
+        prodos["Production OS<br/>Quiesces, fences DMA<br/>then hands off"]
+        subgraph wipeos["WipeOS (committed in I0)"]
+            inv["Inventory<br/>Discovers devices<br/>Diffs against manifest"]
+            orch["Wipe orchestrator<br/>Builds W and the R ledger<br/>Assigns device wipers"]
+            dram["DRAM"]
+            hbm["GPU HBM"]
+            nvme["NVMe"]
+            nic["DPU, NIC"]
+            resp["Challenge responder<br/>Returns sampled openings and<br/>assembles certificate E_p,i"]
+        end
+    end
+
+    manifest -->|"defines W"| inv
+    tap -->|"watches all traffic, logs E"| podnode
+    chal <-->|"χ out, openings back"| resp
+    prodos -->|"kexec"| inv
+    inv --> orch
+    orch --> dram
+    orch --> hbm
+    orch --> nvme
+    orch --> nic
+    dram --> resp
+    hbm --> resp
+    nvme --> resp
+    nic --> resp
+
+    classDef committed fill:#dbeafe,stroke:#1d4ed8,stroke-width:3px,color:#1e3a8a
+    class wipeos committed
+```
 
 Everything inside the WipeOS box, including its own footprint, is either committed in I0 or charged to R. Cross-node coordination follows the barrier protocol in D8.
 
