@@ -13,22 +13,37 @@ A minimal Linux image for verifiable memory wipes. On each host in a pod, WipeOS
 
 ## Running wipeOS
 
-Current as of Oct 19, 2026. These steps are specific to my laptop (Windows on Arm with WSL2) and will become general as wipeOS turns into a product. Update this section whenever the configuration changes.
+Current as of Oct 20, 2026. These steps are specific to my laptop (Windows on Arm with WSL2) and will become general as wipeOS turns into a product. Update this section whenever the configuration changes.
 
 **Launch the current image.**
 
 1. Open the Ubuntu (WSL2) terminal from the Windows Start menu, or run `wsl` in PowerShell.
 2. Go to the Buildroot folder: `cd ~/wipeOS/buildroot`
-3. Boot the image in QEMU:
+3. Boot the image in QEMU with one of the two test commands below.
+4. Log in as `root` (no password).
+5. To quit, press **Ctrl-A**, then **X**.
+
+**Small-memory test, 4 KB pages.** Checks that the image boots, and measures its basic footprint.
 
 ```bash
 qemu-system-x86_64 -m 1G -vga none -kernel output/images/bzImage -append "console=ttyS0" -nographic
 ```
 
-4. Log in as `root` (no password).
-5. To quit, press **Ctrl-A**, then **X**.
+Checks inside the VM: `free -h`, `cat /proc/iomem` and `dmesg | grep Memory:` give the footprint for the residual ledger.
 
-**Useful checks inside the VM.** `free -h`, `cat /proc/iomem` and `dmesg | grep Memory:` give the footprint for the residual ledger.
+**Huge-page test, 1 GB pages (D22).** Checks that the kernel reserves 1 GB pages at boot, with the HugeTLB vmemmap optimization on.
+
+```bash
+qemu-system-x86_64 -m 3G -cpu max -vga none -kernel output/images/bzImage -append "console=ttyS0 default_hugepagesz=1G hugepagesz=1G hugepages=1" -nographic
+```
+
+- `-m 3G`: a 1 GB page needs a free, 1 GB-aligned gigabyte of physical memory, which a 1 GiB VM never has.
+- `-cpu max`: QEMU's default CPU model does not advertise 1 GB page support (the `pdpe1gb` flag); `max` turns on every feature QEMU can emulate.
+- `hugepages=N`: reserves N pages at boot, before memory has a chance to fragment.
+
+Checks inside the VM: `dmesg | grep -i hugetlb`, `grep Huge /proc/meminfo` and `cat /proc/sys/vm/hugetlb_optimize_vmemmap` (expect `1`).
+
+Huge pages become the default once the fill code lands (D22); the 4 KB test stays as a comparison.
 
 **Rebuild after a change** (from `~/wipeOS/buildroot`):
 
@@ -41,7 +56,7 @@ make linux-update-defconfig
 make savedefconfig BR2_DEFCONFIG=../configs/wipeOS_x86_64_defconfig
 ```
 
-**Set up on a new machine.** This repo holds only our configs; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and the launch command above needs `qemu-system-x86_64` installed. Keep the repo off Windows filesystems and out of paths with spaces.
+**Set up on a new machine.** This repo holds only our configs; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and the launch commands above need `qemu-system-x86_64` installed. Keep the repo off Windows filesystems and out of paths with spaces.
 
 ```bash
 git clone git@github.com:ztblick/wipeOS.git ~/wipeOS

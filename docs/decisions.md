@@ -292,6 +292,11 @@ Nothing outstanding. Label verification is resolved by D18.
 - [ ] **Certificate format.** How the logged fields (D15) are packaged into a Pod-PoComp certificate is tabled until the prototype works.
 - [ ] **Attesting committed binaries.** Committing unerased binaries such as the WipeOS image or firmware in I0 would need some form of attestation. Tabled until the Pod-PoComp accounting matures; meanwhile the residual ledger (D20) logs them as their own category.
 - [ ] **WipeOS managing physical memory itself.** A break-glass option: run most of host memory outside the kernel's page allocator so it carries no per-page bookkeeping. Tabled; huge pages (D22) come first, and we only revisit this if they leave too much overhead.
+- [ ] **EFI and NUMA in the kernel config.** `CONFIG_EFI`, `CONFIG_NUMA`, `CONFIG_ACPI_NUMA` and `CONFIG_X86_64_ACPI_NUMA` are currently off. They are needed on real hardware from tier T1 onward:
+  - EFI, so a kernel entered through kexec reads the UEFI memory map correctly.
+  - ACPI SRAT, for the per-socket memory ranges used by inventory (D4) and by NUMA-local fill threads.
+
+  They do nothing in a plain QEMU VM and grow the image, so they are tabled until the step up to T1. When they are enabled, report `bzImage` size before and after.
 
 **Resolved.**
 
