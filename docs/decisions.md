@@ -51,7 +51,7 @@ Template for a new decision:
 
 ### D3: Minimal, itemized resident footprint
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Decision.** Keep WipeOS's resident footprint minimal and itemize every resident byte in the residual ledger.
 
@@ -61,7 +61,7 @@ Template for a new decision:
 
 ### D4: Erasure target from an auditor manifest, cross-checked by discovery
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Decision.** Build the erasure target from an auditor-held pod manifest, cross-checked against live discovery inside WipeOS. Any mismatch aborts the event.
 
@@ -233,7 +233,7 @@ Template for a new decision:
 
 **Status:** Accepted
 
-**Decision.** Build WipeOS with Buildroot, using a glibc toolchain and a pared-down kernel config. The kernel config is kept in our own repository, not in Buildroot's board files.
+**Decision.** Build WipeOS with Buildroot, using a glibc toolchain and a pared-down kernel config, with the initramfs linked into the kernel image. The kernel config is kept in our own repository, not in Buildroot's board files.
 
 **Rationale.** One tool builds the kernel, the initramfs and the toolchain; it has ready-made QEMU configs for x86_64 and aarch64 (D17) and a reproducible-build option. glibc is required by NVIDIA's userspace. First boot in QEMU: about 15 MB of kernel code and data, about 53 MB of a 1 GiB VM not free.
 
@@ -297,6 +297,7 @@ Nothing outstanding. Label verification is resolved by D18.
   - ACPI SRAT, for the per-socket memory ranges used by inventory (D4) and by NUMA-local fill threads.
 
   They do nothing in a plain QEMU VM and grow the image, so they are tabled until the step up to T1. When they are enabled, report `bzImage` size before and after.
+- [ ] **Static wipe agent versus the CUDA path.** The userspace candidate is a single static binary, but NVIDIA ships its user-mode CUDA driver (`libcuda.so`) only as a shared library built against glibc (D21). The CUDA runtime can be linked statically, but it still loads `libcuda.so` at run time, which needs a dynamically linked glibc. If the HBM fill runs through CUDA, either the agent is dynamically linked, or a separate dynamically linked GPU helper runs alongside a static agent that covers DRAM and NVMe. Tabled until the GPU wiper is built for tier T1.
 
 **Resolved.**
 

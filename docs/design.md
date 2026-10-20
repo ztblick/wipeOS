@@ -132,7 +132,7 @@ The proposed approach (D4) uses two sources: an auditor-held pod manifest that d
 **Flow.**
 
 1. **Manifest.** The auditor and developer agree a versioned, signed manifest per pod. It lists the host count, the NVLink domain membership, and per host every device with its capacity and wipe method.
-2. **Discovery.** In phase 0, WipeOS enumerates the hardware from the sources in the table below and emits a discovered manifest in the same schema.
+2. **Discovery.** In phase 3, the inventory pre-check, WipeOS enumerates the hardware from the sources in the table below and emits a discovered manifest in the same schema.
 3. **Diff.** Any device missing, any undeclared device, or any capacity below what was declared aborts the event. The diff result goes into the certificate.
 4. **Target and ledger.** The accepted manifest expands into W_p,i, the regions each wiper must cover, and a residual ledger listing everything charged to R_p,i, with sizes.
 
@@ -150,13 +150,13 @@ The proposed approach (D4) uses two sources: an auditor-held pod manifest that d
 
 ## Software stack
 
-Nothing here is decided yet. These are the layers WipeOS needs and the leading candidate for each, to be settled as decision rows.
+The build approach is decided by D21: Buildroot with a glibc toolchain, a pared-down kernel config, and the initramfs linked into the kernel. For the other layers, the table lists the leading candidate, to be settled as decision rows.
 
-| Layer | Candidate | Why it is a question |
+| Layer | Choice | Why it is a question |
 | --- | --- | --- |
-| Kernel | Minimal Linux config with only the drivers the pod manifest needs | Every built-in driver adds to the footprint charged to R |
+| Kernel | Decided (D21): Linux built by Buildroot from our pared-down config (`configs/linux.config`), with the initramfs linked into the kernel. Only the drivers the pod manifest needs are kept | Every built-in driver adds to the footprint charged to R |
 | Entry | kexec from the production OS (D2), with the image served by the challenge server (D19) | Need to confirm what state the handoff leaves behind on Vera hosts |
-| Userspace | Single static binary in an initramfs, holding the wipe agent | Smaller and easier to itemize than a general userspace |
+| Userspace | Decided (D21): built with Buildroot's glibc toolchain and packed into the initramfs linked into the kernel. Still a candidate: a single static binary holding the wipe agent | Smaller and easier to itemize than a general userspace |
 | GPU access | NVIDIA kernel driver plus a minimal CUDA path for the HBM fill and label kernel | Required to write HBM at speed, but it is the largest single footprint item |
 | Storage | Direct NVMe I/O at full queue depth | Disk wipe is the time bottleneck; this is where label-generation speed matters |
 | Network | Minimal stack to the challenge server only | Everything else is fenced during the event |
