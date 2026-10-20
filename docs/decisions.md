@@ -249,6 +249,18 @@ Template for a new decision:
 
 **Alternatives considered.** Default 4 KB pages: about 1.6% of RAM in bookkeeping. 2 MB pages only: about 0.2%. WipeOS managing physical memory outside the page allocator: tabled as a fallback in case huge pages leave too much overhead.
 
+### D23: System QEMU is the canonical test VM
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** Boot test images with the distribution's `qemu-system-x86_64`, not a Buildroot-built QEMU. Remove `BR2_PACKAGE_HOST_QEMU` and `BR2_PACKAGE_HOST_E2FSPROGS` from the defconfig. The launch script records the QEMU version in every boot log.
+
+**Rationale.** QEMU is test tooling and never part of the image, so pinning it adds build time without affecting the footprint or R. Logging the version covers the risk of behavior differing between machines.
+
+**Alternatives considered.** Buildroot's QEMU: identical version everywhere, but a long extra compile on every fresh build. Keeping both: two copies that can silently disagree.
+
 ## Open questions
 
 Undecided items are grouped by when they block us. The first group has to be settled for the team proposal; the second can be worked out as we build.
