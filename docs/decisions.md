@@ -279,6 +279,90 @@ Template for a new decision:
 
 **Alternatives considered.** The `nokaslr` boot option: depends on the command line. The stub writing `randomize_va_space`: misses process 1. Keeping randomization: layout changes on every boot, with little security value here.
 
+### D25: The stub is process 1
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** Our stub, `/sbin/wipeos-init`, runs as process 1 and is the only userspace process. It is named by `rdinit=/sbin/wipeos-init` in the built-in kernel command line, alongside `norandmaps` (D24), so the full built-in string is `norandmaps rdinit=/sbin/wipeos-init`. Buildroot's init system is None and `/dev` management is devtmpfs. BusyBox stays in the image only to provide `/bin/sh` for dev mode (D28); nothing in the boot path uses it. The QEMU post-build script (`board/qemu/x86_64/post-build.sh`) is removed. A boot-time `rdinit=` still overrides the built-in one, so `rdinit=/bin/sh` remains a rescue shell.
+
+**Rationale.** With no BusyBox init, scripts, gettys or daemons, nothing else is resident or running beside the stub (D3, D20). Naming the stub in the built-in command line keeps the image independent of whoever builds the command line, as in D24. The post-build script only added a tty1 login prompt to an `inittab` that no longer exists.
+
+**Alternatives considered.** The stub as `/init`: collides with the small `/init` script Buildroot installs in initramfs images. The stub as `/sbin/init` behind Buildroot's `/init` script: puts a shell script that needs BusyBox in front of process 1.
+
+### D26: The stub is built as a Buildroot package
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** The repo is a Buildroot external tree (D31), and `package/wipeos-stub/` builds `src/stub/` with Buildroot's toolchain and installs the binary.
+
+**Rationale.** One `make` produces the whole image, the build is reproducible from the repo, and Buildroot stays an untouched upstream checkout.
+
+**Alternatives considered.** Compiling separately and copying the binary in: risks a stale binary, and the image is no longer reproducible from the repo alone.
+
+### D27: The stub is C17, statically linked against glibc
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** Compile with Buildroot's toolchain using `-std=c17 -O2 -Wall -Wextra -Werror`, link with `-static`, and add `-ffile-prefix-map=<src>=.` so the binary contains no host paths. The stub uses no DNS; when networking arrives, endpoints are IP addresses taken from the command line.
+
+**Rationale.** The stub needs no shared libraries at run time. Static glibc can't do host-name lookups properly, hence no DNS. The prefix map keeps builds reproducible. A static binary can't load CUDA's shared libraries, so the future GPU wiper will either make the agent dynamically linked or run as a separate, dynamically linked worker started by process 1. The current lean is the worker; that choice is not needed now (see Deferred: "Static wipe agent versus the CUDA path").
+
+**Alternatives considered.** C++: no benefit for the stub. Rust: adds a long toolchain build and a second language next to CUDA. Go: its runtime and garbage collector undermine determinism.
+
+### D28: Mode flag on the kernel command line
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** `wipeos.mode=dev|prod` on the kernel command line. If the flag appears more than once, the last occurrence wins. If it is absent, the stub runs in prod mode; an unknown value is a FAIL. Both modes collect the same report, run the same checks and produce the same result, and differ only in how the run ends: prod powers off; dev starts `/bin/sh` on the console as a child process, waits for it, and powers off when it exits. If `/bin/sh` is missing in dev mode, the stub reports `FAIL reason=no_shell` and powers off.
+
+**Rationale.** The mode is operational, not a security control: a shell on a node can't fake the timed challenge. Defaulting to prod means a forgotten flag never leaves a production node at a shell.
+
+**Alternatives considered.** Default to dev: a forgotten flag in production would leave a node at a shell. Require the flag: burdens every manual and test boot.
+
+### D29: Stub report format
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** The stub writes only lines of the form `WIPEOS key=value` to the console, each with a single `write()`. The first line is `WIPEOS BEGIN format=1 version=<git commit>`; the last is `WIPEOS RESULT=SUCCESS` or `WIPEOS RESULT=FAIL reason=<token>`, and a missing RESULT line means the stub crashed or hung. Keys are lowercase, grouped by dotted prefix (`mem.`, `iomem.`, `hugetlb.`, `pci.`, `check.`), with units in the key name (`_kb`, `_bytes`, `_pages`, `_ms`). Addresses are hex with `0x`; values contain no spaces, or are wrapped in double quotes.
+
+**Rationale.** One `write()` per line means a kernel message can't land inside a line, and line-based output stays parseable if it is cut off. This is the seed of the WipeOS log format (D15, D20); it is easy to change and the stakes are low, so it is kept simple.
+
+**Alternatives considered.** Free text: fragile to parse. A final JSON object: invalid if output is cut off. Text plus key=value lines: two formats that can drift.
+
+### D30: Boot result reported through the boot log
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** `scripts/run.sh` determines the outcome from the boot log and exits 0 for `WIPEOS RESULT=SUCCESS`, 1 for `WIPEOS RESULT=FAIL`, 2 when there is no RESULT line (crash, hang, timeout or kernel panic), and 3 for bad arguments to `run.sh`. The stub powers off after reporting, which ends QEMU under `-no-reboot`. No QEMU debug-exit device is used.
+
+**Rationale.** Process 1 contains no port I/O and no architecture-specific code (D17), and nothing in it has to be kept off real hardware.
+
+**Alternatives considered.** QEMU's isa-debug-exit device: an independent exit code, but x86-specific port I/O in process 1, a guard flag to keep it off real hardware, and awkward exit-code mapping.
+
+### D31: The repo is a Buildroot external tree
+
+**Status:** Accepted
+
+**Date:** 2026-10-20
+
+**Decision.** The repo root is a Buildroot external tree named `WIPEOS`: `external.desc`, `Config.in` and `external.mk` at the top, the package in `package/wipeos-stub/`, the stub source in `src/stub/`, the launcher in `scripts/run.sh`, boot logs in `logs/` (gitignored), alongside the existing `configs/`, `docs/` and gitignored `buildroot/`. Paths inside config files use `$(BR2_EXTERNAL_WIPEOS_PATH)`, never `../` or a home-folder path. Commands pass the external tree relatively from `~/wipeOS/buildroot`: `make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig`. There is no rootfs overlay, since the package installs the stub, and no `arch/` folder until something needs one.
+
+**Rationale.** Buildroot remembers the external tree for later builds in that checkout and finds the defconfig by name in the external tree's `configs/`, so `configs/` stays where D21 put it. Config paths no longer depend on where Buildroot is checked out.
+
+**Alternatives considered.** A separate `br2-external/` folder: tidier top level, but no defconfig discovery unless `configs/` moves inside it.
+
 ## Open questions
 
 Undecided items are grouped by when they block us. The first group has to be settled for the team proposal; the second can be worked out as we build.

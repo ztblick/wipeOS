@@ -1,2 +1,5 @@
 # Upstream Buildroot checkout and its build output; each developer clones it (see README.md)
 buildroot/
+
+# Boot logs written by scripts/run.sh
+logs/
