@@ -17,10 +17,20 @@ wipeos-init: $(OBJS)
 
 $(OBJS): wipeos.h
 
+# The version comes from git, not from a file, so make can't see it
+# change. .version is rewritten only when it differs, and main.o depends
+# on it, so a new commit always reaches the BEGIN line.
+.version: FORCE
+	@echo '$(WIPEOS_VERSION)' | cmp -s - $@ || echo '$(WIPEOS_VERSION)' > $@
+
+main.o: .version
+
 %.o: %.c
 	$(CC) $(CFLAGS) $(STUB_CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f wipeos-init $(OBJS)
+	rm -f wipeos-init $(OBJS) .version
 
-.PHONY: clean
+FORCE:
+
+.PHONY: clean FORCE
