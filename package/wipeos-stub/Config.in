@@ -1,0 +1,5 @@
+config BR2_PACKAGE_WIPEOS_STUB
+	bool "wipeos-stub"
+	help
+	  WipeOS process 1: mounts the virtual filesystems, prints the
+	  WIPEOS report and powers off (D25).
