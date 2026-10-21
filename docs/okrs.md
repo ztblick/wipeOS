@@ -10,9 +10,12 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
 
 - [x] **KR1.1** Choose a minimal x86_64 linux kernel base and remove any unnecessary modules from it.
   - **Done.** Chose Buildroot with glibc, the initramfs linked into the kernel and the disk root filesystem off (D21), starting from Buildroot's QEMU x86_64 config. Removed graphics, sound, USB, wireless, Bluetooth and disk and network filesystems; kept serial console, PCI, virtio, NVMe, networking, kexec and module support. The kernel shrank from 14.8 MB to 13.0 MB, and memory not free in a 1 GiB VM fell from 53.2 MB to 51.3 MB. Key finding: the kernel's per-page bookkeeping is about 16 MB here, 1.6% of RAM. Later use of large (2 MB) and huge (1 GB) pages should solve this problem.
-- [ ] **KR1.2** The stripped-down kernel and initramfs boot in a VM to a userspace stub that prints the memory map. The kernel and initramfs sizes are recorded as the first entries in the residual ledger.
+- [x] **KR1.2** The stripped-down kernel and initramfs boot in a VM to a userspace stub that prints the memory map. The kernel and initramfs sizes are recorded as the first entries in the residual ledger.
+  - **Done.** `/sbin/wipeos-init` runs as process 1 (D25) and prints the memory map (`iomem.ram.*`, the kernel's sections) in its `WIPEOS` report; the kernel and initramfs sizes are report lines (`iomem.kernel_total_bytes=13360176`, `initramfs.shmem_kb=6444`), not yet ledger entries, since the ledger schema was out of scope in `docs/plans/stub-plan.md`.
 - [ ] **KR1.3** Design harness. It covers how a VM is launched with configurable guest RAM, how boot and wipe logs are captured, and where architecture-specific code sits (D17).
-- [ ] **KR1.4** One command launches the image in QEMU and collects its boot log.
+  - **Progress.** `scripts/run.sh` covers launching with configurable guest RAM and page size, and capturing the boot log. Wipe logs and the D17 boundary for architecture-specific code are not designed yet; the stub has no architecture-specific code so far.
+- [x] **KR1.4** One command launches the image in QEMU and collects its boot log.
+  - **Done.** `scripts/run.sh` builds, boots, writes `logs/run-<date>-<time>.log` and exits 0/1/2/3 by the result (D30); acceptance tests 1–8 of `docs/plans/stub-plan.md` pass.
 
 **O2. Finalize the plan for streaming labels back to the verifier (D18).**
 

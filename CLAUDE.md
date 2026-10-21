@@ -4,7 +4,7 @@
 
 WipeOS is a minimal Linux image that boots on each host in a pod during a memory-erasure event. It overwrites the agreed erasure target with challenge-dependent labels and answers a challenge server's queries, so that at most R bits of uncommitted state survive. It builds on Amodo's PoSE memory-wiping work and the Pod-PoComp protocol.
 
-Current stage: prototype. We are getting a stripped-down x86_64 image booting in QEMU and writing the first erasure code (fill a few pages of DRAM with labels, stream fingerprints, check them with a verifier stub).
+Current stage: prototype. The x86_64 image boots in QEMU to our own process 1, which reports the memory layout and checks (`scripts/run.sh`). Next is the first erasure code: fill a few pages of DRAM with labels, stream fingerprints, check them with a verifier stub.
 
 ## Project docs: read them first, every session
 
@@ -18,6 +18,8 @@ The repo is the source of truth for the design. These files are imported here so
 Before starting any task, make sure you have read them. In your first reply of the session, name the decisions, open questions and key results that bear on the task. If a task touches a design question the docs don't settle, stop and ask.
 
 Research notes in `docs/research/` are not imported. Read them when a task touches their topic (label generation, fingerprints and the verifier are in `docs/research/label-verification.md`).
+
+Implementation plans live in `docs/plans/`. When a task belongs to a plan, read the whole plan first and follow its steps.
 
 **What you may change in each doc:**
 
@@ -55,13 +57,19 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/buildroot` | Upstream Buildroot checkout. Run every `make` from here. Don't edit files in it unless I ask. |
 | `~/wipeOS/configs/linux.config` | Our pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Our Buildroot settings |
+| `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
+| `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |
+| `~/wipeOS/package/wipeos-stub/` | Buildroot package for the stub (D26) |
+| `~/wipeOS/external.desc`, `Config.in`, `external.mk` | Make the repo a Buildroot external tree (D31) |
+| `~/wipeOS/logs/` | Boot and build logs from `run.sh` (gitignored) |
+| `~/wipeOS/docs/plans/` | Implementation plans |
 | `~/wipeOS/buildroot/output/images/bzImage` | Built image: kernel with initramfs linked in |
 
 ## Commands
 
 Build, boot and rebuild commands are in `README.md`, imported above. Run every `make` from `~/wipeOS/buildroot`. If a command or path changes, update `README.md` in the same step and tell me.
 
-- If you boot the image yourself to verify something, wrap it in `timeout` so it can't hang the session, capture serial output to a file under `/tmp`, and tell me the path.
+- To boot the image yourself, use `scripts/run.sh` (add `--no-build` when the image is current). It applies a timeout and writes the log to `logs/`; tell me the log path and the exit code. For a boot `run.sh` can't express, call QEMU under `timeout`, capture serial output to a file under `/tmp`, and tell me the path.
 - `make menuconfig` and `make linux-menuconfig` are interactive and you can't drive them. When a kernel or Buildroot option needs to change, list the exact symbols and values and I'll make the change.
 
 ## How I want you to work

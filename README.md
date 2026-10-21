@@ -10,6 +10,7 @@ A minimal Linux image for verifiable memory wipes. On each host in a pod, WipeOS
 | `docs/decisions.md` | Decision log (D1 onward) and open questions | Whenever a decision is proposed, accepted or superseded |
 | `docs/okrs.md` | This week's OKRs and an archive of past weeks | Weekly |
 | `docs/research/` | Research notes behind specific decisions | As research happens |
+| `docs/plans/` | Implementation plans for multi-step work, such as `stub-plan.md` | Per task |
 
 ## Running wipeOS
 
@@ -18,64 +19,74 @@ Current as of Oct 20, 2026. These steps are specific to my laptop (Windows on Ar
 **Launch the current image.**
 
 1. Open the Ubuntu (WSL2) terminal from the Windows Start menu, or run `wsl` in PowerShell.
-2. Go to the Buildroot folder: `cd ~/wipeOS/buildroot`
-3. Boot the image in QEMU with one of the two test commands below.
-4. Log in as `root` (no password).
-5. To quit, press **Ctrl-A**, then **X**.
+2. Go to the repo: `cd ~/wipeOS`
+3. Run `scripts/run.sh`. It rebuilds the stub and the image (about 25 s), boots WipeOS in QEMU, and exits with the result.
 
-**Small-memory test, 4 KB pages.** Checks that the image boots, and measures its basic footprint.
+| Command | What it does |
+| --- | --- |
+| `scripts/run.sh` | Prod mode, 1 GiB, 4 KB pages: boot, print the report, power off |
+| `scripts/run.sh --mem 3` | 1 GB huge pages (D22): reserves N−2 = 1 page |
+| `scripts/run.sh --mem 4 --pages 4k` | Ordinary 4 KB pages at any size, for measuring bookkeeping cost |
+| `scripts/run.sh --mode dev` | After the report, a shell on the console; `exit` powers the VM off |
+| `scripts/run.sh --test-fail` | Negative test: a failing check, exit 1 |
+| `scripts/run.sh --no-build` | Boot the existing image without rebuilding |
+
+`scripts/run.sh --help` lists every option. In dev mode, **Ctrl-A** then **X** quits QEMU directly, which counts as an unclean end (exit 2).
+
+**Exit codes (D30).** 0: the stub reported `RESULT=SUCCESS` and the VM powered off cleanly. 1: `RESULT=FAIL`, then a clean power-off. 2: anything else (build failure, kernel panic, timeout, no RESULT line, or no clean power-off). 3: bad arguments.
+
+**Logs.** Each run writes `logs/run-<date>-<time>.log` (gitignored), and the build output goes to the matching `-build.log`. A boot log starts with `RUN` lines (QEMU version, git commit, options and the exact QEMU command, D23), followed by the serial console: kernel messages and the stub's report.
+
+**The report (D29).** The stub, `/sbin/wipeos-init`, runs as process 1 (D25) and prints only `WIPEOS key=value` lines: `BEGIN` with the git commit, the mode, memory (`mem.*`), the RAM ranges and the kernel's own sections (`iomem.*`, including `iomem.kernel_total_bytes`), the unpacked initramfs (`initramfs.shmem_kb`), huge pages (`hugetlb.*`), address randomization (`aslr.*`), PCI devices (`pci.*`), one `check.*` line per check, and finally `RESULT`.
+
+**Huge pages.** With `--pages auto` (the default), up to 2 GiB uses 4 KB pages. From 3 GiB, `run.sh` reserves N−2 pages of 1 GB at boot and adds `-cpu max`, because QEMU's default CPU model doesn't advertise 1 GB page support. The first gigabyte is always broken up (BIOS areas, the legacy hole, the kernel) and the top of guest RAM has a reserved region, so N−2 is the safe count. Huge pages become the default once the fill code lands (D22); the 4 KB runs stay as a comparison.
+
+**Booting by hand.** From `~/wipeOS/buildroot`, this is what `run.sh` runs for a 1 GiB prod boot:
 
 ```bash
-qemu-system-x86_64 -m 1G -vga none -kernel output/images/bzImage -append "console=ttyS0" -nographic
+qemu-system-x86_64 -m 1G -vga none -nographic -no-reboot -kernel output/images/bzImage -append "console=ttyS0 panic=-1 wipeos.mode=prod"
 ```
 
-Checks inside the VM: `free -h`, `cat /proc/iomem` and `dmesg | grep Memory:` give the footprint for the residual ledger.
-
-**Huge-page test, 1 GB pages (D22).** Checks that the kernel reserves 1 GB pages at boot, with the HugeTLB vmemmap optimization on.
-
-```bash
-qemu-system-x86_64 -m 3G -cpu max -vga none -kernel output/images/bzImage -append "console=ttyS0 default_hugepagesz=1G hugepagesz=1G hugepages=1" -nographic
-```
-
-- `-m 3G`: a 1 GB page needs a free, 1 GB-aligned gigabyte of physical memory, which a 1 GiB VM never has.
-- `-cpu max`: QEMU's default CPU model does not advertise 1 GB page support (the `pdpe1gb` flag); `max` turns on every feature QEMU can emulate.
-- `hugepages=N`: reserves N pages at boot, before memory has a chance to fragment.
-
-Checks inside the VM: `dmesg | grep -i hugetlb`, `grep Huge /proc/meminfo` and `cat /proc/sys/vm/hugetlb_optimize_vmemmap` (expect `1`).
-
-Huge pages become the default once the fill code lands (D22); the 4 KB test stays as a comparison.
+Adding `rdinit=/bin/sh` to `-append` bypasses the stub and gives a rescue shell, with nothing mounted.
 
 **Rebuild after a change** (from `~/wipeOS/buildroot`):
 
+- After changing the stub in `src/stub/`: `scripts/run.sh` rebuilds it, or run `make wipeos-stub-rebuild && make`.
 - After changing the kernel config with `make linux-menuconfig`: `make linux-rebuild && make`
-- After changing Buildroot settings with `make menuconfig`: `make`
-- Save both configs afterwards:
+- After changing Buildroot settings with `make menuconfig`: `make`. Removing a package or changing the init system needs a full rebuild, `make clean all` (about 40 min; keep the laptop from sleeping, or the build pauses).
+- Save both configs afterwards. Buildroot remembers where our defconfig lives (D31):
 
 ```bash
 make linux-update-defconfig
-make savedefconfig BR2_DEFCONFIG=../configs/wipeOS_x86_64_defconfig
+make savedefconfig
 ```
 
-**Set up on a new machine.** This repo holds only our configs; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and the launch commands above need `qemu-system-x86_64` installed. Keep the repo off Windows filesystems and out of paths with spaces.
+**Set up on a new machine.** This repo holds our configs, the stub and the launcher; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. The repo is a Buildroot external tree named `WIPEOS` (D31). Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and `run.sh` needs the distribution's `qemu-system-x86_64` (D23). Keep the repo off Windows filesystems and out of paths with spaces.
 
 ```bash
 git clone git@github.com:ztblick/wipeOS.git ~/wipeOS
 cd ~/wipeOS
 git clone --branch 2026.02.3 https://gitlab.com/buildroot.org/buildroot.git buildroot
 cd buildroot
-make defconfig BR2_DEFCONFIG=../configs/wipeOS_x86_64_defconfig
+make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig
 make
+cd .. && scripts/run.sh --no-build
 ```
 
-The first `make` builds the toolchain, kernel and initramfs and takes a long time; the image lands in `buildroot/output/images/bzImage`. Config paths are relative to the `buildroot` folder, so the repo can live anywhere.
+The first `make` builds the toolchain, kernel, stub and initramfs and takes about 40 minutes; the image lands in `buildroot/output/images/bzImage`. Config files refer to the repo as `$(BR2_EXTERNAL_WIPEOS_PATH)`, so it can live anywhere.
 
 **Where things live.**
 
 | Path | What it is |
 | --- | --- |
-| `~/wipeOS/buildroot` | Buildroot checkout; run every `make` from here |
+| `~/wipeOS/scripts/run.sh` | The launcher: build, boot, log, result |
+| `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
+| `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
+| `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
 | `~/wipeOS/configs/linux.config` | Pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Buildroot settings |
+| `~/wipeOS/logs/` | Boot and build logs from `run.sh` (gitignored) |
+| `~/wipeOS/buildroot` | Buildroot checkout; run every `make` from here |
 | `~/wipeOS/buildroot/output/images/bzImage` | The built image: kernel with initramfs inside |
 
 **WSL setup notes.** Windows paths are kept out of the Linux PATH (`appendWindowsPath = false` in `/etc/wsl.conf`), because Buildroot fails on paths with spaces. VS Code still opens with `code .` through an alias in `~/.bashrc`.

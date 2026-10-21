@@ -156,7 +156,7 @@ The build approach is decided by D21: Buildroot with a glibc toolchain, a pared-
 | --- | --- | --- |
 | Kernel | Decided (D21): Linux built by Buildroot from our pared-down config (`configs/linux.config`), with the initramfs linked into the kernel. Only the drivers the pod manifest needs are kept | Every built-in driver adds to the footprint charged to R |
 | Entry | kexec from the production OS (D2), with the image served by the challenge server (D19) | Need to confirm what state the handoff leaves behind on Vera hosts |
-| Userspace | Decided (D21): built with Buildroot's glibc toolchain and packed into the initramfs linked into the kernel. Still a candidate: a single static binary holding the wipe agent | Smaller and easier to itemize than a general userspace |
+| Userspace | Decided (D21, D25–D28): a single static C17 binary, `/sbin/wipeos-init`, built with Buildroot's glibc toolchain and run as process 1 from the initramfs linked into the kernel. BusyBox stays only to give dev mode a shell | Smaller and easier to itemize than a general userspace |
 | GPU access | NVIDIA kernel driver plus a minimal CUDA path for the HBM fill and label kernel | Required to write HBM at speed, but it is the largest single footprint item |
 | Storage | Direct NVMe I/O at full queue depth | Disk wipe is the time bottleneck; this is where label-generation speed matters |
 | Network | Minimal stack to the challenge server only | Everything else is fenced during the event |
@@ -205,4 +205,4 @@ The H100 NVL node is out of scope for now. The challenge server runs on one of t
 
 ## Codebase design
 
-Not started. It will follow the component split in Architecture overview once that settles.
+The repo is a Buildroot external tree (D31). Its one component so far is the stub (`src/stub/`, built and installed by `package/wipeos-stub/`): process 1, which mounts the virtual filesystems, prints the `WIPEOS` report (D29), runs its checks and ends the run by mode (D28). `scripts/run.sh` boots the image in QEMU and turns the report into an exit code (D30). The wipers, inventory and challenge responder will follow the component split in Architecture overview.
