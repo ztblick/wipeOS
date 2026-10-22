@@ -403,6 +403,18 @@ The evidence is in `docs/research/amodo-study.md` (§3.1, §3.4) and `docs/resea
 - Commit-and-check proofs of space: see the Deferred item "Commit-and-check proofs of space as the successor to precomputation".
 - D18, streamed fingerprints: incompatible with PoSE-DB.
 
+### D33: Lint C code with checkpatch, gcc -fanalyzer and cppcheck
+
+**Status:** Proposed
+
+**Date:** 2026-10-22
+
+**Decision.** All C under `src/` is linted by `scripts/lint.sh`: kernel style via the kernel tree's checkpatch.pl (`.checkpatch.conf`), gcc warnings plus `-fanalyzer`, and cppcheck. A pre-commit hook in `.githooks/` runs it on staged changes; style is checked on changed lines, analysis on the whole program. False positives are suppressed in the code with a comment giving the reason. Dev tooling only; nothing is added to the image.
+
+**Rationale.** Linux style matches the base we build on; two independent analyzers catch memory errors early in code where a silent bug weakens the wipe guarantee. One script keeps the hook, manual runs and agent hooks consistent.
+
+**Alternatives considered.** clang-format (conflicts with checkpatch in places); clang-tidy (overlaps the analyzers); sparse (kernel-only annotations); CI-only checks (slower feedback; still worth adding later as the enforced gate).
+
 ## Open questions
 
 Undecided items are grouped by when they block us. The first group has to be settled for the team proposal; the second can be worked out as we build.

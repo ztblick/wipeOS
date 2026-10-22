@@ -15,7 +15,11 @@
 # Usage:
 #   scripts/lint.sh             every .c/.h under the C directories
 #   scripts/lint.sh FILE...     just these files
-#   scripts/lint.sh --staged    what is staged for commit (used by the hook)
+#   scripts/lint.sh --staged    what is staged for commit (the git hook)
+#   scripts/lint.sh --changed FILE...
+#                               like FILE..., but style is checked only on
+#                               lines that differ from the last commit
+#                               (the Claude Code hook)
 #
 # Exit: 0 clean, 1 findings, 2 a tool is missing or the arguments are bad.
 # A missing tool fails the run rather than skipping its checks.
@@ -99,6 +103,7 @@ done
 mode=tree
 case "${1:-}" in
 --staged) mode=staged; shift ;;
+--changed) mode=changed; shift; [ $# -gt 0 ] || usage ;;
 -h | --help) usage ;;
 -*) usage ;;
 esac
@@ -157,6 +162,20 @@ if [ "$mode" = staged ]; then
 	# patches are checked, so older code doesn't block unrelated commits.
 	out=$(git diff --cached "${diffopts[@]}" -- "${changed[@]}" |
 		perl "$checkpatch" --quiet --no-summary - 2>&1)
+elif [ "$mode" = changed ]; then
+	# Lines that differ from the last commit, staged or not. A file git
+	# doesn't track yet is new, so all of it counts as changed.
+	patch=$(for f in "${files[@]}"; do
+		if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+			git diff HEAD "${diffopts[@]}" -- "$f"
+		else
+			git diff --no-index "${diffopts[@]}" /dev/null "$f" || true
+		fi
+	done)
+	out=
+	if [ -n "$patch" ]; then
+		out=$(perl "$checkpatch" --quiet --no-summary - <<<"$patch" 2>&1)
+	fi
 else
 	# Whole files: present each one as a patch that adds it.
 	out=$(for f in "${files[@]}"; do

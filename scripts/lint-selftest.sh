@@ -9,6 +9,9 @@
 # Part 2 builds a throwaway git repo with the hook installed and checks
 # when a commit is allowed and when it is refused.
 #
+# Part 3 feeds the Claude Code hook (.claude/hooks/lint-c.sh) the JSON
+# Claude Code would send after an edit, and checks what it reports back.
+#
 # Usage:  scripts/lint-selftest.sh [-v]
 #   -v  print lint's (or git's) output under each case
 # Exit: 0 if every case passes, 1 otherwise.
@@ -23,6 +26,27 @@ repo=$(git rev-parse --show-toplevel 2>/dev/null) || {
 	exit 2
 }
 lint=$repo/scripts/lint.sh
+hook=$repo/.githooks/pre-commit
+claude_hook=$repo/.claude/hooks/lint-c.sh
+
+# Preflight: the two things that, if missing, make lint silently not
+# run. Git skips a hook that isn't executable (with only a hint), and a
+# clone ignores .githooks/ unless core.hooksPath points there.
+pre_ok=1
+for f in "$lint" "$hook" "$claude_hook"; do
+	if [ ! -x "$f" ]; then
+		echo "selftest: ${f#"$repo"/} is not executable." \
+		     "Fix: chmod +x ${f#"$repo"/}" >&2
+		pre_ok=0
+	fi
+done
+if [ "$(git -C "$repo" config core.hooksPath)" != .githooks ]; then
+	echo "selftest: the hook isn't enabled in this clone." \
+	     "Fix: git config core.hooksPath .githooks" >&2
+	pre_ok=0
+fi
+[ $pre_ok = 1 ] || exit 2
+
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 
@@ -382,6 +406,8 @@ h=$tmp/hookrepo
 mkdir -p "$h/scripts" "$h/src"
 cp "$repo/scripts/lint.sh" "$h/scripts/"
 cp -r "$repo/.githooks" "$repo/.checkpatch.conf" "$h/"
+mkdir -p "$h/.claude/hooks"
+cp "$claude_hook" "$h/.claude/hooks/"
 # lint.sh finds checkpatch and the cross gcc under buildroot/, so point
 # the throwaway repo at the real one.
 [ -e "$repo/buildroot" ] && ln -s "$repo/buildroot" "$h/buildroot"
@@ -428,7 +454,8 @@ g add -A
 g commit -q --no-verify -m base
 
 # hook_case NAME WANT [ENV=VALUE] -- commit-args. WANT is allowed or
-# refused; a refused commit must also leave HEAD where it was.
+# refused. A refused commit must leave HEAD where it was, and lint must
+# be what refused it (a "lint:" line), not some other git failure.
 hook_case() {
 	local name=$1 want=$2 before out rc ok=0
 	shift 2
@@ -438,7 +465,8 @@ hook_case() {
 	if [ "$want" = allowed ] && [ $rc -eq 0 ]; then
 		ok=1
 	elif [ "$want" = refused ] && [ $rc -ne 0 ] &&
-	     [ "$(g rev-parse HEAD)" = "$before" ]; then
+	     [ "$(g rev-parse HEAD)" = "$before" ] &&
+	     grep -q '^lint: ' <<<"$out"; then
 		ok=1
 	fi
 	result $ok hook "$name -> $want" "$out"
@@ -480,6 +508,70 @@ echo "$bad" > "$h/src/demo.c"
 g add src/demo.c
 hook_case "--no-verify bypasses the hook" allowed \
 	git commit --no-verify -m bypass
+
+# ---- Part 3: the Claude Code hook ----
+
+echo
+echo "Part 3: what the Claude Code hook reports after an edit"
+
+# Start from a committed file with an old style problem (no blank line
+# after a declaration) that predates the edits below.
+legacy='#include <stdio.h>
+
+static int twice(int n)
+{
+	int r = 2 * n;
+	return r;
+}
+
+int main(void)
+{
+	printf("%d\n", twice(21));
+	return 0;
+}'
+echo "$legacy" > "$h/src/demo.c"
+g add -A
+g commit -q --no-verify -m legacy
+
+# claude_case NAME WANT-EXIT EXPECT FILE [ENV=VALUE...]: send the hook the
+# JSON for an edit to FILE. Its exit code must be WANT-EXIT, and when
+# EXPECT is set, what it tells Claude must contain EXPECT.
+claude_case() {
+	local name=$1 want=$2 expect=$3 file=$4 out rc ok=0
+	shift 4
+	out=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' \
+		"$file" | env CLAUDE_PROJECT_DIR="$h" "$@" \
+		"$h/.claude/hooks/lint-c.sh" 2>&1)
+	rc=$?
+	if [ $rc -eq "$want" ] &&
+	   { [ -z "$expect" ] || grep -qF -- "$expect" <<<"$out"; }; then
+		ok=1
+	fi
+	result $ok claude "$name -> exit $want" "$out"
+}
+
+echo notes >> "$h/notes.txt"
+claude_case "edit to a non-C file is ignored" 0 "" "$h/notes.txt"
+g checkout -q -- .
+
+echo "// a harmless comment" >> "$h/src/demo.c"
+claude_case "clean edit; old style problem elsewhere not reported" 0 "" \
+	"$h/src/demo.c"
+g checkout -q -- .
+
+sed -i 's/^\tint r = 2 \* n;$/&\n\tint spare;/' "$h/src/demo.c"
+claude_case "edit adds an unused variable" 2 "unused variable" \
+	"$h/src/demo.c"
+g checkout -q -- .
+
+printf 'int main(void) {\n\treturn 0;\n}\n' > "$h/src/new.c"
+claude_case "new file is checked in full" 2 "OPEN_BRACE" "$h/src/new.c"
+rm -f "$h/src/new.c"
+
+echo "// another comment" >> "$h/src/demo.c"
+claude_case "a lint tool is missing (reported, not skipped)" 2 \
+	"could not run" "$h/src/demo.c" CHECKPATCH=/nonexistent/checkpatch.pl
+g checkout -q -- .
 
 echo
 echo "$npass passed, $nfail failed"
