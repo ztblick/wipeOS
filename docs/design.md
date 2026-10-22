@@ -47,6 +47,7 @@ We assume a global inference-only training pause in which both the US and China 
 
 - read all pod ingress and egress on the north-south network. The paper's gateways are these taps.
 - have the capacity to host the challenge server for every pod's erasure events, with enough compute to query all 18 nodes of a pod simultaneously (for example, around 32 cores).
+- precompute each event's challenge database offline, before the event, on any auditor hardware, and keep it secret until it is used (D32).
 - alert auditors to any failed challenge.
 
 Without installed taps, Pod-PoComp has nothing to anchor to, and this design does not apply.
@@ -72,7 +73,8 @@ flowchart TB
     subgraph auditor["Auditor side"]
         manifest["Pod manifest<br/>Signed list of devices<br/>Source of target W"]
         tap["Gateway/Network Tap<br/>Cuts pod traffic at t_i<br/>Logs certificate E"]
-        chal["Challenge server<br/>Issues fresh challenge χ<br/>Samples, checks openings"]
+        precomp["Challenge database<br/>Precomputed offline per event (D32)<br/>Secret χ, positions, answer hashes"]
+        chal["Challenge server<br/>Sends χ from an unused entry<br/>Queries secret positions, checks answer hashes"]
     end
 
     subgraph podnode["Each node in the pod (18 per NVL72)"]
@@ -84,13 +86,15 @@ flowchart TB
             hbm["GPU HBM"]
             nvme["NVMe"]
             nic["DPU, NIC"]
-            resp["Challenge responder<br/>Returns sampled openings and<br/>assembles certificate E_p,i"]
+            resp["Challenge responder<br/>Returns the queried labels and<br/>assembles certificate E_p,i"]
         end
     end
 
     manifest -->|"defines W"| inv
+    manifest -->|"memory layout"| precomp
+    precomp -->|"one unused entry"| chal
     tap -->|"watches all traffic, logs E"| podnode
-    chal <-->|"χ out, openings back"| resp
+    chal <-->|"χ out, labels back"| resp
     prodos -->|"kexec"| inv
     inv --> orch
     orch --> dram
@@ -116,11 +120,11 @@ An erasure event runs ten phases across all 18 nodes of the pod. The challenge s
 2. **Image delivery and handoff.** The challenge server sends each node's agent the trigger message (D19). The agent downloads the WipeOS image over the erasure channel, checks its hash against I0, and stages it with kexec -l. The production OS then stops workloads, tears down GPU contexts, drains device queues, and fences DMA paths not needed for erasure, and jumps into WipeOS with kexec -e (D2).
 3. **Inventory pre-check.** WipeOS discovers the node's hardware and diffs it against the auditor manifest (D4). The output is the node's target W and residual ledger. A mismatch aborts the event.
 4. **READY (barrier 1).** Each node reports READY, and the challenge server waits for all 18.
-5. **SEED.** The challenge server broadcasts a fresh challenge χ to every node at once. χ is the start signal, because the fill depends on it.
+5. **SEED.** The challenge server takes an unused entry from the precomputed challenge database (D32) and broadcasts its χ to every node at once. χ has been kept secret until now, so it is still the start signal, because the fill depends on it.
 6. **Fill.** Each node overwrites every region in its W with χ-dependent labels (D5), all devices in parallel. Caches and queues that can be flushed are; the rest is charged to R.
 7. **FILLED (barrier 2).** Each node reports FILLED, and the challenge server waits for all 18. The slowest device, usually NVMe, sets the pace.
-8. **QUERY and RESPONSE.** The challenge server sends sampled indices covering every memory class to all nodes simultaneously. Each node returns small openings, about 64 B each, within the deadline.
-9. **VERDICT and certificate.** The challenge server checks the openings and decides whether the pod passed. Each node's certificate E_p,i binds the node, t_i, χ, W_p,i, the response time, the coverage and R_p,i, and the Gateway/Network Tap records it. A failure alerts the auditors.
+8. **QUERY and RESPONSE.** The challenge server sends the entry's secret sample positions, covering every memory class, to all nodes simultaneously. Each node returns the stored label at each position, 32 B each, within the deadline.
+9. **VERDICT and certificate.** The challenge server hashes each returned label, compares it with the entry's stored hash, decides whether the pod passed, and discards the entry. Each node's certificate E_p,i binds the node, t_i, χ, W_p,i, the response time, the coverage and R_p,i, and the Gateway/Network Tap records it. A failure alerts the auditors.
 10. **RELEASE.** The challenge server tells WipeOS to shut down, and each node boots its host OS through a clean path. Anything loaded that is not committed in I0 is charged as next-interval ingress.
 
 Paper budget for an NVL72 (about 13 TB HBM and 17 TB DRAM): tens of minutes for phases 3 and 4, and about 30 min end to end. Local NVMe at the paper's 15.36 TB per host would take hours.

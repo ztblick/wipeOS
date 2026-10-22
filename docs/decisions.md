@@ -2,7 +2,7 @@
 
 Every design decision, with its reasoning and the alternatives considered, plus the queue of undecided questions. The architecture these decisions produce is described in `docs/design.md`.
 
-D1 follows from the threat model, and D2, D5 and D6 to D22 were settled in design discussion; all of these are Accepted. D3 and D4 are proposals from our first read of the Pod-PoComp paper and are open for discussion.
+D1 follows from the threat model, and D2, D5 and D6 to D22 were settled in design discussion; all of these are Accepted, except D18, which D32 has since superseded. D3 and D4 are proposals from our first read of the Pod-PoComp paper and are open for discussion.
 
 ## How this log works
 
@@ -201,7 +201,7 @@ Template for a new decision:
 
 ### D18: Verify labels with streamed fingerprints (candidate C)
 
-**Status:** Accepted
+**Status:** Superseded by D32
 
 **Decision.** Verify labels with candidate C. During the fill, the node streams a fingerprint of every label; the challenge server secretly keeps a sample, in neighborhoods, and checks queried labels against it. The scheme sits behind its own interface so a better one can replace it later.
 
@@ -363,13 +363,53 @@ Template for a new decision:
 
 **Alternatives considered.** A separate `br2-external/` folder: tidier top level, but no defconfig discovery unless `configs/` moves inside it.
 
+### D32: Label verification by precomputed secret challenges
+
+**Status:** Accepted
+
+**Date:** 2026-10-21
+
+**Decision.** Labels are generated on the node with Amodo's PoSE-DB code (D5, D14). Ahead of each erasure event, the auditor precomputes a database of single-use challenges, offline and on any auditor hardware. Each entry holds:
+
+- a fresh secret χ;
+- secret sample positions (chunks, and label ranks within each chunk);
+- the expected answer for each position, stored as a hash rather than the label itself.
+
+At the event, the challenge server takes an unused entry, sends its χ at SEED, queries the stored positions at QUERY, and checks each answer by hashing it and comparing. The entry is then discarded.
+
+This supersedes D18 and refines D16: labels are still generated on the node, and the challenge server still doesn't recompute labels during the event. The only recomputation happens offline, before the event, on auditor hardware.
+
+**Requirements.**
+
+- χ stays secret until SEED, and the sample positions until QUERY. Both matter: knowing the positions alone would let a node store only those labels.
+- Entries are single-use.
+- Expected answers are stored as hashes, so a leak reveals no label values.
+- Entries are tied to the pod's memory layout from the auditor manifest (D4), so a hardware change invalidates them.
+- The response deadline still applies.
+
+**Rationale.**
+
+- Verification at event time is a lookup, so one challenge server keeps up with all 18 nodes in parallel.
+- It's the simplest option to stand up, and reuses Amodo's code unchanged.
+- Live recompute on a CPU-only server is limited by the fill window (about 1,300 sampled chunks per tray on 32 cores), and gets worse as GPUs get faster.
+- D18's streamed fingerprints don't work on PoSE-DB: every stored label's parent is a discarded scaffold node, and 32-byte labels would make a per-label fingerprint stream about half the size of memory.
+
+The evidence is in `docs/research/amodo-study.md` (§3.1, §3.4) and `docs/research/label-verification.md`.
+
+**Alternatives considered.**
+
+- Live recompute on the challenge server: limited by the window, and scales poorly with parallel nodes.
+- Deferred verification, checking answers after the event: no secret database, but cheating is detected hours later.
+- Commit-and-check proofs of space: see the Deferred item "Commit-and-check proofs of space as the successor to precomputation".
+- D18, streamed fingerprints: incompatible with PoSE-DB.
+
 ## Open questions
 
 Undecided items are grouped by when they block us. The first group has to be settled for the team proposal; the second can be worked out as we build.
 
 **Needed for the team proposal.**
 
-Nothing outstanding. Label verification is resolved by D18.
+Nothing outstanding. Label verification is resolved by D32.
 
 **Design questions.**
 
@@ -384,6 +424,7 @@ Nothing outstanding. Label verification is resolved by D18.
 - [ ] **Device abstraction.** Should wipers be plug-ins behind one interface (discover, fill, open, report), selected by the manifest?
 - [ ] **Observability.** Which per-phase timings, per-device throughputs and logs are built in from the start?
 - [ ] **Deadline and sample count.** How are the response deadline and sample count calibrated? Best measured once the challenge server exists.
+- [ ] **Precomputation parameters (D32).** How many chunks per tray are sampled, and how many labels per chunk? How much database storage and offline compute does each event need? A rough first estimate: about 20,000 chunks per tray and 100 labels per chunk is about 30 minutes of one H100 and about 0.6 GB per rack event. And do the Pod-PoComp authors accept a pre-generated secret χ, given that the paper's validity condition says χ is "generated after the ordinary-traffic cut-off"?
 - [ ] **NVLink switch trays (lower priority).** The switch trays have their own buffers and management processors. Must their state be wiped, or can it be bounded and charged to R?
 - [ ] **GPU driver in WipeOS.** How much of its footprint can be committed in I0, and how much has to be charged to R?
 - [ ] **kexec on Vera.** What state survives the handoff, and what does firmware still touch?
@@ -401,10 +442,15 @@ Nothing outstanding. Label verification is resolved by D18.
   They do nothing in a plain QEMU VM and grow the image, so they are tabled until the step up to T1. When they are enabled, report `bzImage` size before and after.
 - [ ] **Static wipe agent versus the CUDA path.** The userspace candidate is a single static binary, but NVIDIA ships its user-mode CUDA driver (`libcuda.so`) only as a shared library built against glibc (D21). The CUDA runtime can be linked statically, but it still loads `libcuda.so` at run time, which needs a dynamically linked glibc. If the HBM fill runs through CUDA, either the agent is dynamically linked, or a separate dynamically linked GPU helper runs alongside a static agent that covers DRAM and NVMe. Tabled until the GPU wiper is built for tier T1.
 - [ ] **Huge-page count in QEMU above 3 GiB.** `run.sh` requests N−2 pages of 1 GB for `--mem N`, which assumes guest RAM is one unbroken block. Up to 3 GiB it is, but QEMU's `pc` machine moves RAM above 3 GiB to start at 4 GiB, and the 2–3 GiB gigabyte ends in a reserved region (`0xbffe0000–0xbfffffff`). With `--mem 4`, only two aligned gigabytes are free (1–2 GiB and 4–5 GiB), and early boot allocations, probably the per-page bookkeeping, took one: 2 requested, 1 reserved (`logs/run-20261020-225626.log`). `run.sh` warns and the result is unaffected. Options: match the formula to QEMU's layout, have the stub report which gigabytes the pages came from, or accept the warning, since real hardware has a different memory map. Tabled until we know whether QEMU stays relevant beyond tier T0.
+- [ ] **Commit-and-check proofs of space as the successor to precomputation.** A future direction is to remove precomputation's dependence on a secret database (D32).
+  - How it works: the node commits to all its labels with a Merkle root at FILLED. For each challenged label, it opens the label and its parents with Merkle paths. The server checks the paths and one local hash relation, which is constant work per check with no recomputation.
+  - What it needs: a graph whose stored labels have stored parents, unlike PoSE-DB. Examples are stacked depth-robust graphs or stacked expanders (Ren and Devadas 2016), and tight proofs of space (Fisch 2019).
+  - When it would win: it would be the superior solution if node fill speed is comparable to PoSE-DB's (about 0.8 GB/s per H100), and the added unwipeable footprint (the Merkle tree, and any unproven fraction of memory) is acceptably small.
+  - Status: not a priority while precomputation is good enough.
 
 **Resolved.**
 
-- [x] **Label verification without recomputation.** Resolved by D18: candidate C, streamed fingerprints with secret sampling, behind an interface so it can be swapped later.
+- [x] **Label verification without recomputation.** Resolved by D32: a database of single-use secret challenges, precomputed offline by the auditor before each event. It supersedes D18's streamed fingerprints.
 - [x] **Coordination.** Resolved by D8: a barrier protocol run by the challenge server.
 - [x] **Fencing between nodes.** Resolved by D8, since all nodes fill at once, and by the physical-isolation assumption, since east-west links are unplugged. The NVLink switch trays remain open above.
 - [x] **Benchmark scope.** Resolved by D11: a three-stage scale-up with minimal disruption.
@@ -412,7 +458,7 @@ Nothing outstanding. Label verification is resolved by D18.
 - [x] **Role of the H100 NVL node.** Out of scope for now.
 - [x] **Network tap in the test.** Resolved by D13: the challenge server runs on a CPU-only server where the tap is emulated.
 - [x] **Amodo baseline.** Resolved by D14: we clone their label-generation code and build everything else ourselves.
-- [x] **Reference challenge server.** Placement resolved by D13; verification method resolved by D18.
+- [x] **Reference challenge server.** Placement resolved by D13; verification method resolved by D32.
 - [x] **Success metrics.** Resolved by D15: a working prototype that logs every certificate field.
 - [x] **Two architectures.** Resolved by D17: x86_64 first, with an abstraction layer for a later Arm port.
 - [x] **Cluster approvals.** Scoped as the tiered test plan in Test environment. Approvals are requested tier by tier later, not before the OKRs.

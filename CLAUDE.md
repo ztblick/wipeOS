@@ -4,7 +4,7 @@
 
 WipeOS is a minimal Linux image that boots on each host in a pod during a memory-erasure event. It overwrites the agreed erasure target with challenge-dependent labels and answers a challenge server's queries, so that at most R bits of uncommitted state survive. It builds on Amodo's PoSE memory-wiping work and the Pod-PoComp protocol.
 
-Current stage: prototype. The x86_64 image boots in QEMU to our own process 1, which reports the memory layout and checks (`scripts/run.sh`). Next is the first erasure code: fill a few pages of DRAM with labels, stream fingerprints, check them with a verifier stub.
+Current stage: prototype. The x86_64 image boots in QEMU to our own process 1, which reports the memory layout and checks (`scripts/run.sh`). Next is the first erasure code: fill a few pages of DRAM with labels, then check them with a verifier stub that holds precomputed secret challenges (D32).
 
 ## Project docs: read them first, every session
 
@@ -17,7 +17,7 @@ The repo is the source of truth for the design. These files are imported here so
 
 Before starting any task, make sure you have read them. In your first reply of the session, name the decisions, open questions and key results that bear on the task. If a task touches a design question the docs don't settle, stop and ask.
 
-Research notes in `docs/research/` are not imported. Read them when a task touches their topic (label generation, fingerprints and the verifier are in `docs/research/label-verification.md`).
+Research notes in `docs/research/` are not imported. Read them when a task touches their topic (Amodo's PoSE-DB label generator is in `docs/research/amodo-study.md`; label verification, precomputed challenges and the verifier are in `docs/research/label-verification.md`).
 
 Implementation plans live in `docs/plans/`. When a task belongs to a plan, read the whole plan first and follow its steps.
 
@@ -82,7 +82,7 @@ Build, boot and rebuild commands are in `README.md`, imported above. Run every `
 
 **Design decisions are mine.** Stop and ask before any of these:
 - new files, modules or directories, or changes to the project layout
-- interfaces, data formats and protocols (for example the fingerprint stream format or the residual ledger schema)
+- interfaces, data formats and protocols (for example the challenge database entry format or the residual ledger schema)
 - new dependencies, Buildroot packages, kernel options or drivers, or anything else that grows the image
 - the choice of algorithm, language, library or build approach
 - anything that contradicts or extends a decision in the log
@@ -97,14 +97,15 @@ These are the decisions from `docs/decisions.md` that matter most for code. If t
 - **Footprint is a security quantity.** Every byte WipeOS keeps resident counts toward R unless it's committed in advance (D3, D20). Don't add code, packages or kernel options casually. When a change affects the image, report `bzImage` size before and after.
 - **No hardware attestation** (D1). Don't design anything that depends on TPM or attestation reports.
 - **x86_64 only for now** (D17). Keep architecture-specific code behind its own boundary so an aarch64 port is cheap later, but don't write aarch64 code.
-- **Replaceable seams.** Label generation (a placeholder keyed hash now, Amodo's PoSE construction later; D5) and label verification (streamed fingerprints with secret sampling; D18) each sit behind their own interface. Don't couple other code to the placeholder implementations.
+- **Replaceable seams.** Label generation (a placeholder keyed hash now, Amodo's PoSE construction later; D5) and label verification (precomputed secret challenges; D32) each sit behind their own interface. Don't couple other code to the placeholder implementations.
+- **Challenge secrets stay on the verifier side** (D32). χ is secret until SEED and the sample positions until QUERY; expected answers are stored only as hashes. The fill code never sees the positions before QUERY.
 - **Fail closed, never skip silently.** Any region the wipe code doesn't fill is recorded in the residual ledger with location, size, reason and category (D20). A region that fails or is skipped is reported as an error, never worked around quietly.
 - **Large pages for the fill** (D22). Memory is filled using 1 GB pages reserved at boot, falling back to 2 MB and then 4 KB pages only for unaligned edges and regions around holes.
 - **Config lives in our repo** (D21). The kernel config and Buildroot defconfig live in `~/wipeOS/configs`, not in Buildroot's board files.
 
 ## Code that gets extra scrutiny
 
-This covers wipe and fill paths, memory discovery, label generation and fingerprinting, the verifier, and the residual ledger.
+This covers wipe and fill paths, memory discovery, label generation, the challenge database and the verifier, and the residual ledger.
 
 - Keep diffs especially small, and comment the *why* on anything non-obvious.
 - Correctness before speed: no clever optimizations without asking.

@@ -19,9 +19,12 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
 
 **O2. Finalize the plan for streaming labels back to the verifier (D18).**
 
-- [ ] **KR2.1** Clone Amodo's open-source GPU label-generation code. Built and run it on a single GPU. Understand the specifics of its label-generation algorithm and whether that fits with my label-streaming idea.
-- [ ] **KR2.2** Answer this question: which labels in the DAG need to be streamed back to the challenge server for it to be able to theoretically challenge every node on the graph?
+- [x] **KR2.1** Clone Amodo's open-source GPU label-generation code. Built and run it on a single GPU. Understand the specifics of its label-generation algorithm and whether that fits with my label-streaming idea.
+  - **Done.** Cloned at `fae0935`, built and run on one H100 (0.81 GB/s of stored labels); the algorithm is in `docs/research/amodo-study.md` Part 1, and §3.1 shows it doesn't fit label streaming.
+- [x] **KR2.2** Answer this question: which labels in the DAG need to be streamed back to the challenge server for it to be able to theoretically challenge every node on the graph?
+  - **Done.** No stored label has a stored parent (0 of 131,072 at m = 2^17), so streaming can't support neighborhood checks; see `docs/research/amodo-study.md` §3.1.
 - [ ] **KR2.3** Specify streaming protocol: label size, fingerprint size, how the server picks and keeps neighborhoods, batching, and query format.
+  - **Progress.** The plan changed (D32): there is no fingerprint stream; the protocol is now precomputed challenges. Its sizing is the open question "Precomputation parameters" in `docs/decisions.md`.
 
 **O3. Share the design and get feedback.**
 
@@ -33,6 +36,7 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
 
 - [ ] **KR4.1** A userspace program fills a small DRAM buffer, a few pages, with labels derived from a seed. A placeholder label function, such as a keyed hash per page, sits behind a label-generation interface so Amodo's construction can replace it later.
 - [ ] **KR4.2** As each label is written, its fingerprint (D18) is streamed to stdout in batches, in a format documented in `docs/research/label-verification.md`.
+  - **Progress.** The plan changed (D32): there is no fingerprint stream; the protocol is now precomputed challenges.
 - [ ] **KR4.3** A verifier stub reads the fingerprint stream, keeps a random sample, queries those pages, and checks the returned labels against the kept fingerprints. Program and stub can run as two processes joined by a pipe.
 - [ ] **KR4.4** The program runs as the userspace stub in the KR1.2 image, and logs per-phase timings and the pages it did not fill to the residual ledger (D20).
 

@@ -1,5 +1,7 @@
 # Research notes: label verification
 
+**Update, 2026-10-21:** candidate C (D18) has been superseded. Labels are now verified with precomputed secret challenges (D32); see "Revisited after the Amodo study" at the end.
+
 Background research behind D18 (see `docs/decisions.md`). Not loaded into Claude Code sessions automatically; read it when a task touches label generation, fingerprints or the verifier.
 
 D16 requires that the challenge server knows the correct responses without recomputing labels. Candidate C, streamed fingerprints, is adopted (D18). It keeps B's secret sampling but streams a short hash of each label instead of the label itself, which cuts bandwidth by about 256x.
@@ -42,3 +44,24 @@ Stream time for a Vera Rubin NVL72, which has 20.7 TB of HBM4 and 54 TB of LPDDR
 | --- | --- | --- | --- |
 | [Bursuc et al. 2024](https://arxiv.org/abs/2401.06626), graph protocol | Recomputes the challenged label from the seed, which can mean many ancestor labels in a depth-robust graph | Round-trip timing (distant attacker), not prover isolation | Fill first, then rapid single-label challenge rounds. In-place depth-robust graph. Built for IoT devices with a stronger verifier; prototype erased 32 KB. Python and C prototype available. |
 | [Bursuc et al. 2024](https://arxiv.org/abs/2401.06626), unconditional protocol | Looks up a stored block; no computation | Round-trip timing, no cryptographic assumption | The verifier generates, sends and keeps the entire fill, so communication equals memory size. |
+
+## Revisited after the Amodo study (2026-10-21)
+
+Candidate C was adopted before we had read Amodo's code. The study (`docs/research/amodo-study.md`, §3.1) found that it does not work on the graph Amodo implements, PoSE-DB. Precomputed secret challenges replace it (D32, which supersedes D18).
+
+**Why candidate C fails on PoSE-DB.**
+
+- **No stored label has a stored parent.** Each chunk hashes about 276 nodes for every label it keeps (m = 2^17). Every stored label has exactly one parent, and that parent is a scaffold node that is computed and discarded: 0 of 131,072 output parents are outputs, measured on Amodo's own topology code. An honest node can't answer a neighborhood query without recomputing the whole chunk.
+- **Streaming the parents doesn't bind anything.** A one-hop check only binds a label if its parent is bound too, and in PoSE-DB that recursion runs through the whole scaffold. A cheater can stream a fake parent from a PRG and a label hashed from it, then regenerate both on demand. Binding the scaffold would cost about 138–276 bytes of stream per byte stored.
+- **Labels are 32 B, not 4 KB.** Even a 16 B fingerprint per stored label is a stream half the size of memory: about 37 TB for an NVL72 rack, not the 290 GB estimated above.
+
+**Options weighed.**
+
+| Option | How answers are checked | Main cost | Main concern |
+| --- | --- | --- | --- |
+| Live recompute | The challenge server knows χ, picks secret positions and recomputes those chunks while the nodes fill | About 1.7 CPU-seconds per sampled chunk at m = 2^17; about 1,300 sampled chunks per tray on 32 cores in the fill window | Limited by the window; scales poorly with 18 nodes in parallel and gets worse as GPUs get faster |
+| Precomputed database (adopted, D32) | Before the event, the auditor precomputes single-use entries offline: a secret χ, secret positions, and a hash of each expected answer. At the event, checking is a lookup | Offline compute and storage per event; a first estimate is about 30 min of one H100 and 0.6 GB per rack event | χ and the positions must stay secret; entries are single-use and tied to the manifest's memory layout; the Pod-PoComp authors must accept a pre-generated χ |
+| Deferred verification | The server records the answers and checks them after the event | No secret database | Cheating is detected hours later |
+| Commit-and-check proofs of space | The node commits to all its labels with a Merkle root at FILLED and opens each challenged label with its parents; the server checks the paths and one hash relation | Constant work per check, no recomputation | Needs a graph whose stored labels have stored parents, unlike PoSE-DB; the Merkle tree and any unproven fraction of memory add to the unwipeable footprint |
+
+**Outcome.** Precomputation is adopted (D32). It is the simplest to stand up, reuses Amodo's code unchanged, and makes event-time verification a lookup. Commit-and-check is recorded as the deferred successor, and the database's size is the open question "Precomputation parameters" (both in `docs/decisions.md`).
