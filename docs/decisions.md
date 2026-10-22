@@ -14,7 +14,7 @@ D1 follows from the threat model, and D2, D5 and D6 to D22 were settled in desig
 Template for a new decision:
 
 ```markdown
-### D23: Short title
+### DXX: Short title
 
 **Status:** Proposed
 
@@ -405,7 +405,7 @@ The evidence is in `docs/research/amodo-study.md` (§3.1, §3.4) and `docs/resea
 
 ### D33: Lint C code with checkpatch, gcc -fanalyzer and cppcheck
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-10-22
 
