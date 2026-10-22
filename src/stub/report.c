@@ -187,7 +187,7 @@ static void report_pci(struct facts *f)
 	}
 	for (;;) {
 		errno = 0;
-		struct dirent *e = readdir(d);
+		const struct dirent *e = readdir(d);
 		if (e == NULL) {
 			if (errno != 0) {
 				report("read_fail=\"%s\" errno=%d", dir, errno);

@@ -46,6 +46,11 @@ static int mount_fs(const char *type, const char *target)
 // it couldn't, open it ourselves now that devtmpfs is mounted. With no
 // console at all there is nowhere to report to, and the run still goes
 // on to its normal end.
+// gcc's analyzer reports fd as leaked when open() returns 0, 1 or 2.
+// That case is intended: fd is then itself a standard stream and must
+// stay open.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
 static void ensure_console(void)
 {
 	if (fcntl(STDOUT_FILENO, F_GETFD) != -1 &&
@@ -61,6 +66,7 @@ static void ensure_console(void)
 	if (fd > STDERR_FILENO)
 		close(fd);
 }
+#pragma GCC diagnostic pop
 
 // If tok is "name=value" for the given "name=", return value.
 static char *param(char *tok, const char *name_eq)
