@@ -12,26 +12,34 @@ The repo is the source of truth for the design. These files are imported here so
 
 @README.md
 @docs/design.md
-@docs/decisions.md
 @docs/okrs.md
+@context/INDEX.md
 
-Before starting any task, make sure you have read them. In your first reply of the session, name the decisions, open questions and key results that bear on the task. If a task touches a design question the docs don't settle, stop and ask.
+Before starting any task, make sure you have read them. `context/INDEX.md` lists every decision and open question by title only, so open the records that bear on the task before relying on them. In your first reply of the session, name the decisions, open questions and key results that bear on the task. If a task touches a design question the records don't settle, stop (see Stopping).
 
 Research notes in `docs/research/` are not imported. Read them when a task touches their topic (Amodo's PoSE-DB label generator is in `docs/research/amodo-study.md`; label verification, precomputed challenges and the verifier are in `docs/research/label-verification.md`).
 
-Implementation plans live in `docs/plans/`. When a task belongs to a plan, read the whole plan first and follow its steps.
+**Two kinds of documentation.**
 
-**What you may change in each doc:**
+- **Mine, written for people:** `docs/design.md` and `docs/okrs.md`. They are short and in my voice. You suggest changes; I write them.
+- **Yours, written for future sessions:** `context/` (decisions, open questions and their index), `docs/research/`, and the Outcome section of each plan in `docs/plans/`. Later Claude Code sessions and Claude chats read these as the source of truth, so keep them accurate, consistent with each other and with the code, and current at the end of every task.
 
-| File | You may | You may not |
+`README.md` holds the commands; keep it current too.
+
+**What you may change:**
+
+| Path | You may | You may not |
 | --- | --- | --- |
+| `docs/design.md` | Suggest changes as exact text, in the plan's Outcome or in your report | Edit it |
 | `docs/okrs.md` | Tick a key result you completed, with a one-line note of the evidence; add progress notes under a key result | Add, remove or reword objectives or key results |
-| `docs/decisions.md` | Add decisions with status Proposed, and add open questions you run into; change a status only when I've said so in this session ("accept D23"), and move the answered question to Resolved | Edit or delete an existing decision's text, or accept a decision on your own |
-| `docs/design.md` | Propose an edit, showing me the exact change | Edit it before I approve the change |
+| `docs/plans/` | Write the Outcome section of the plan you are working from | Change anything above Outcome once work has started |
+| `context/decisions/` | Add `proposed` decisions; record a plan's "Decisions made for this plan" as `accepted`, with `decided_in`; mark a decision `accepted` when I say so in this session ("accept D34"); supersede as `context/decisions/TEMPLATE.md` describes | Edit the body of an accepted decision, or accept anything else on your own |
+| `context/questions/` | Add open questions; add what you learn to an open question; mark one `resolved` when an accepted decision answers it | Move a question to `deferred` on your own |
+| `context/INDEX.md` | Regenerate it with `scripts/context_index.py` after any change in `context/` | Edit it by hand |
+| `docs/research/` | Add notes when I ask; fix stale paths and decision numbers | Rewrite findings |
 | `README.md` | Update the commands and paths when they change, in the same step as the change | — |
-| `docs/research/` | Add notes when I ask | — |
 
-If the code contradicts the docs, or a doc looks out of date, tell me. Don't silently follow one over the other.
+If the code contradicts a record, or a record looks out of date, tell me. Don't silently follow one over the other. When you are working from a plan, that is a stop condition.
 
 ## Development environment
 
@@ -49,8 +57,7 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | Path | What it is |
 | --- | --- |
 | `~/wipeOS/README.md` | What WipeOS is, map of the docs, build and run commands |
-| `~/wipeOS/docs/design.md` | Architecture and design (edit only with my approval) |
-| `~/wipeOS/docs/decisions.md` | Decision log and open questions |
+| `~/wipeOS/docs/design.md` | Architecture and design, in my voice (you suggest, I edit) |
 | `~/wipeOS/docs/okrs.md` | This week's OKRs and past weeks |
 | `~/wipeOS/docs/research/` | Research notes behind specific decisions |
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
@@ -62,7 +69,10 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/package/wipeos-stub/` | Buildroot package for the stub (D26) |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | Make the repo a Buildroot external tree (D31) |
 | `~/wipeOS/logs/` | Boot and build logs from `run.sh` (gitignored) |
-| `~/wipeOS/docs/plans/` | Implementation plans |
+| `~/wipeOS/docs/plans/` | Implementation plans; `TEMPLATE.md` is the format |
+| `~/wipeOS/context/decisions/` | One file per decision, `Dnnn-<slug>.md`; rules and template in `TEMPLATE.md` |
+| `~/wipeOS/context/questions/` | One file per open, deferred or resolved question; rules and template in `TEMPLATE.md` |
+| `~/wipeOS/context/INDEX.md` | Generated list of all decisions and questions (`scripts/context_index.py`) |
 | `~/wipeOS/buildroot/output/images/bzImage` | Built image: kernel with initramfs linked in |
 
 ## Commands
@@ -70,29 +80,48 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 Build, boot and rebuild commands are in `README.md`, imported above. Run every `make` from `~/wipeOS/buildroot`. If a command or path changes, update `README.md` in the same step and tell me.
 
 - To boot the image yourself, use `scripts/run.sh` (add `--no-build` when the image is current). It applies a timeout and writes the log to `logs/`; tell me the log path and the exit code. For a boot `run.sh` can't express, call QEMU under `timeout`, capture serial output to a file under `/tmp`, and tell me the path.
+- After any change in `context/`, run `scripts/context_index.py`. `scripts/context_index.py --check` exits 1 if the index is stale.
 - `make menuconfig` and `make linux-menuconfig` are interactive and you can't drive them. When a kernel or Buildroot option needs to change, list the exact symbols and values and I'll make the change.
 
 ## How I want you to work
 
+**Working from a plan.** When I give you a plan in `docs/plans/`, the committed plan is my approval.
+
+- Read the whole plan, then do its preflight step before changing anything.
+- Work through every step without proposing it first or stopping for review.
+- Make the choices the plan delegates to you, and list each one in Outcome with its reason.
+- Stop only for the plan's stop conditions (see Stopping).
+- Finish with the plan's Record step. Outcome is your end-of-task report; in chat, give a short summary and point to it.
+
+**Without a plan.** For anything beyond a trivial edit, propose a plan first: which files you'll touch, what changes, and how you'll verify. Wait for my OK.
+
 **Keep the lens narrow.**
 - Work only on the task I gave you. Don't fix, refactor, rename, reformat or "improve" anything outside it. If you notice something else worth changing, list it at the end instead of doing it.
-- For anything beyond a trivial edit, propose a plan first: which files you'll touch, what changes, and how you'll verify. Wait for my OK.
-- Work in small, reviewable steps. If a step would touch more than a few files or roughly 150 lines, split it and check in between.
+- Work in small, reviewable steps. If a step would touch more than a few files or roughly 150 lines, split it. Without a plan, check in between.
 - Read existing code and config before proposing changes. Don't guess at file contents.
 
-**Design decisions are mine.** Stop and ask before any of these:
+**Design decisions are mine.** These are reserved unless a plan settles or delegates them:
 - new files, modules or directories, or changes to the project layout
 - interfaces, data formats and protocols (for example the challenge database entry format or the residual ledger schema)
 - new dependencies, Buildroot packages, kernel options or drivers, or anything else that grows the image
 - the choice of algorithm, language, library or build approach
-- anything that contradicts or extends a decision in the log
+- anything that contradicts or extends an accepted decision
 - error-handling policy, especially anything that would let a wipe continue after a failure
 
-If you're unsure whether something is a design choice, assume it is. When one comes up, stop and add it to `docs/decisions.md` as a Proposed decision, using the template in that file: your recommendation as the decision, the other 2–3 options with their tradeoffs as the alternatives. Then tell me and wait for my answer before building on it.
+If you're unsure whether something is a design choice, assume it is.
+
+**Stopping.** When a reserved choice comes up that nobody has settled:
+
+1. Write it to `context/decisions/` as a `proposed` decision (see `TEMPLATE.md` there): your recommendation as the decision, the other 2–3 options with their tradeoffs as the alternatives.
+2. If you are working from a plan, set its Outcome status to `blocked on Dnn`.
+3. Run `scripts/context_index.py`.
+4. End your turn with a short message naming the decision, and wait.
+
+Don't continue with work that depends on the answer, and don't guess.
 
 ## Rules that come from the design
 
-These are the decisions from `docs/decisions.md` that matter most for code. If this summary and that file disagree, the file wins; point out the mismatch.
+These are the accepted decisions in `context/decisions/` that matter most for code. If this summary and a record disagree, the record wins; point out the mismatch.
 
 - **Footprint is a security quantity.** Every byte WipeOS keeps resident counts toward R unless it's committed in advance (D3, D20). Don't add code, packages or kernel options casually. When a change affects the image, report `bzImage` size before and after.
 - **No hardware attestation** (D1). Don't design anything that depends on TPM or attestation reports.
@@ -122,11 +151,13 @@ Don't commit, push or rewrite history unless I ask. When a step is done, suggest
 
 ## When you finish a task, report
 
+When you work from a plan, these go in its Outcome section. Otherwise, report them in chat:
+
 1. What changed (each file, one line)
 2. Why
 3. How you verified it (commands and results)
 4. Image size delta, if the image is affected
-5. Doc changes you made (OKR ticks, Proposed decisions, open questions, README) and design.md edits you're proposing
+5. Records you wrote (decisions, open questions, OKR ticks, README), and the `docs/design.md` changes you suggest, as exact text
 6. Decisions you need from me, and anything you noticed but didn't touch
 
 ## Help me understand

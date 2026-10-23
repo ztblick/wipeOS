@@ -1,13 +1,16 @@
 {
   "permissions": {
     "ask": [
-      "Edit(/docs/design.md)",
       "Edit(/.claude/settings.json)",
       "Edit(/.claude/hooks/**)",
       "Edit(/scripts/lint.sh)",
       "Edit(/scripts/lint-selftest.sh)",
       "Edit(/.checkpatch.conf)",
       "Edit(/.githooks/**)"
+    ],
+    "deny": [
+      "Edit(/docs/design.md)",
+      "Write(/docs/design.md)"
     ]
   },
   "hooks": {

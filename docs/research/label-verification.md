@@ -2,7 +2,7 @@
 
 **Update, 2026-10-21:** candidate C (D18) has been superseded. Labels are now verified with precomputed secret challenges (D32); see "Revisited after the Amodo study" at the end.
 
-Background research behind D18 (see `docs/decisions.md`). Not loaded into Claude Code sessions automatically; read it when a task touches label generation, fingerprints or the verifier.
+Background research behind D18 (see `context/decisions/`). Not loaded into Claude Code sessions automatically; read it when a task touches label generation, fingerprints or the verifier.
 
 D16 requires that the challenge server knows the correct responses without recomputing labels. Candidate C, streamed fingerprints, is adopted (D18). It keeps B's secret sampling but streams a short hash of each label instead of the label itself, which cuts bandwidth by about 256x.
 
@@ -64,4 +64,4 @@ Candidate C was adopted before we had read Amodo's code. The study (`docs/resear
 | Deferred verification | The server records the answers and checks them after the event | No secret database | Cheating is detected hours later |
 | Commit-and-check proofs of space | The node commits to all its labels with a Merkle root at FILLED and opens each challenged label with its parents; the server checks the paths and one hash relation | Constant work per check, no recomputation | Needs a graph whose stored labels have stored parents, unlike PoSE-DB; the Merkle tree and any unproven fraction of memory add to the unwipeable footprint |
 
-**Outcome.** Precomputation is adopted (D32). It is the simplest to stand up, reuses Amodo's code unchanged, and makes event-time verification a lookup. Commit-and-check is recorded as the deferred successor, and the database's size is the open question "Precomputation parameters" (both in `docs/decisions.md`).
+**Outcome.** Precomputation is adopted (D32). It is the simplest to stand up, reuses Amodo's code unchanged, and makes event-time verification a lookup. Commit-and-check is recorded as the deferred successor, and the database's size is the open question "Precomputation parameters" (both in `context/questions/`).
