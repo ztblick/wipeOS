@@ -1,32 +1,8 @@
 {
   "permissions": {
     "ask": [
-      "Edit(/.claude/settings.json)",
-      "Edit(/.claude/hooks/**)",
-      "Edit(/scripts/lint.sh)",
-      "Edit(/scripts/lint-selftest.sh)",
-      "Edit(/.checkpatch.conf)",
-      "Edit(/.githooks/**)"
-    ],
-    "deny": [
       "Edit(/docs/design.md)",
-      "Write(/docs/design.md)"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-c.sh",
-            "args": [],
-            "timeout": 120,
-            "statusMessage": "Linting the C change"
-          }
-        ]
-      }
+      "Edit(/.claude/settings.json)"
     ]
   }
 }
