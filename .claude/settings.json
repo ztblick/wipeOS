@@ -5,6 +5,7 @@
       "Edit(/.claude/hooks/**)",
       "Edit(/scripts/lint.sh)",
       "Edit(/scripts/lint-selftest.sh)",
+      "Edit(/scripts/hooks-selftest.sh)",
       "Edit(/.checkpatch.conf)",
       "Edit(/.githooks/**)",
       "Edit(/.claude/settings.local.json)",
@@ -26,6 +27,14 @@
             "timeout": 10,
             "onFailure": "block",
             "statusMessage": "Checking for lint bypasses"
+          },
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-build.py"],
+            "timeout": 10,
+            "onFailure": "block",
+            "statusMessage": "Checking the build and environment rules"
           }
         ]
       },
@@ -53,6 +62,19 @@
             "args": [],
             "timeout": 120,
             "statusMessage": "Linting the C change"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check-index.py"],
+            "timeout": 30,
+            "statusMessage": "Checking context/INDEX.md"
           }
         ]
       }

@@ -39,6 +39,14 @@ esac
 [ -f "$file" ] || exit 0
 
 rel=${file#"$repo"/}
+# Hooks run in the shell's current directory. lint.sh finds the repo with
+# git rev-parse, which from buildroot/ (a separate git repo) finds
+# Buildroot's checkout instead, so start from the project root.
+cd "$repo" || {
+	echo "Lint hook: could not cd to $repo, so the change to $rel" \
+	     "was not linted." >&2
+	exit 2
+}
 out=$("$repo/scripts/lint.sh" --changed "$file" 2>&1)
 rc=$?
 case $rc in

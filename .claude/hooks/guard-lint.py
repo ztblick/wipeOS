@@ -11,10 +11,11 @@ Bash. Blocks (exit 2, reason on stderr) any command that:
      through GIT_CONFIG_* environment variables;
   3. turns Claude Code's hooks off: disableAllHooks;
   4. changes a lint file through the shell: .githooks/, scripts/lint.sh,
-     scripts/lint-selftest.sh, .checkpatch.conf, .claude/, and
-     .git/config and .git/hooks/. The Edit tool already has to ask before
-     touching most of these (settings.json); this closes the shell route.
-     Reading them and running the lint scripts is allowed.
+     scripts/lint-selftest.sh, scripts/hooks-selftest.sh, .checkpatch.conf,
+     .claude/, and .git/config and .git/hooks/. The Edit tool already has
+     to ask before touching most of these (settings.json); this closes the
+     shell route. Reading them and running the lint scripts is allowed,
+     and so is python3 .claude/hooks/<script> (D37).
 
 Edit, Write and MultiEdit on C files under src/. Asks Zach (permission
 "ask") when the change adds a lint suppression: a cppcheck-suppress comment
@@ -58,6 +59,7 @@ PROTECTED = re.compile(
     r"(?:^|/)(?:"
     r"\.githooks(?:/|$)"
     r"|scripts/lint(?:-selftest)?\.sh$"
+    r"|scripts/hooks-selftest\.sh$"
     r"|\.checkpatch\.conf$"
     r"|\.claude(?:/|$)"
     r"|\.git/(?:config$|hooks(?:/|$))"
@@ -74,7 +76,10 @@ GIT_READ_ONLY = {"diff", "log", "show", "status", "blame", "ls-files",
 
 # Scripts that may be run (not changed) by naming them.
 RUNNABLE = re.compile(r"(?:^|/)(?:scripts/lint(?:-selftest)?\.sh"
+                      r"|scripts/hooks-selftest\.sh"
                       r"|\.githooks/pre-commit|\.claude/hooks/[^/]+)$")
+# Hook scripts, which python3 may run (D37). Running one isn't changing it.
+HOOK_SCRIPT = re.compile(r"(?:^|/)\.claude/hooks/[^/]+$")
 
 SEPARATORS = {";", "&&", "||", "|", "&", "|&", "(", ")", "\n"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>", "<>"}
@@ -223,6 +228,9 @@ def check_bash(cmd):
             if sub in GIT_READ_ONLY:
                 continue
         if name in ("bash", "sh") and RUNNABLE.search(words[1]) \
+                and touched == [words[1]]:
+            continue
+        if name in ("python3", "python") and HOOK_SCRIPT.search(words[1]) \
                 and touched == [words[1]]:
             continue
         return (f"uses {name} on {touched[0]}, a lint file. Read it with "

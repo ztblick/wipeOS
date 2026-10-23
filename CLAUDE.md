@@ -50,6 +50,8 @@ If the code contradicts a record, or a record looks out of date, tell me. Don't 
 - **Builds are expensive here.** Never run `make clean`, `make distclean`, delete `output/`, or trigger a toolchain rebuild without asking first. Use the narrowest rebuild target that works (`make linux-rebuild`, `make <pkg>-rebuild`).
 - Don't install system packages (apt, pip, global npm) without asking. Tell me what's missing and why.
 
+These rules are enforced by `.claude/hooks/guard-build.py` (D35): the "never" rules are denied, and the "ask first" rules, plus any `sudo`, bring up a permission prompt for me.
+
 ## Project layout
 
 The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in every path and command.
@@ -61,10 +63,12 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/docs/okrs.md` | This week's OKRs and past weeks |
 | `~/wipeOS/docs/research/` | Research notes behind specific decisions |
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
+| `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35) and the index check at Stop (D36) |
 | `~/wipeOS/buildroot` | Upstream Buildroot checkout. Run every `make` from here. Don't edit files in it unless I ask. |
 | `~/wipeOS/configs/linux.config` | Our pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Our Buildroot settings |
 | `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
+| `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the hooks in `.claude/hooks/` (D37) |
 | `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | Buildroot package for the stub (D26) |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | Make the repo a Buildroot external tree (D31) |
@@ -81,6 +85,7 @@ Build, boot and rebuild commands are in `README.md`, imported above. Run every `
 
 - To boot the image yourself, use `scripts/run.sh` (add `--no-build` when the image is current). It applies a timeout and writes the log to `logs/`; tell me the log path and the exit code. For a boot `run.sh` can't express, call QEMU under `timeout`, capture serial output to a file under `/tmp`, and tell me the path.
 - After any change in `context/`, run `scripts/context_index.py`. `scripts/context_index.py --check` exits 1 if the index is stale.
+- After a change to a hook in `.claude/hooks/`, run `scripts/hooks-selftest.sh`. It exits 0 only if every case gives the expected block, ask or pass.
 - `make menuconfig` and `make linux-menuconfig` are interactive and you can't drive them. When a kernel or Buildroot option needs to change, list the exact symbols and values and I'll make the change.
 
 ## How I want you to work

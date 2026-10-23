@@ -63,6 +63,8 @@ make linux-update-defconfig
 make savedefconfig
 ```
 
+**Useful checks.** From `~/wipeOS`, `scripts/hooks-selftest.sh` feeds each Claude Code hook in `.claude/hooks/` the input Claude Code would send, for a fixed table of cases, and exits 0 only if every one gives the expected result: block, ask or pass (D37). Add `-v` to list every case.
+
 **Set up on a new machine.** This repo holds our configs, the stub and the launcher; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. The repo is a Buildroot external tree named `WIPEOS` (D31). Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and `run.sh` needs the distribution's `qemu-system-x86_64` (D23). Keep the repo off Windows filesystems and out of paths with spaces.
 
 ```bash
