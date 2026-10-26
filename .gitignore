@@ -3,3 +3,6 @@ buildroot/
 
 # Boot logs written by scripts/run.sh
 logs/
+
+# Downloaded tools, such as checkpatch.pl (scripts/fetch-checkpatch.sh)
+.cache/

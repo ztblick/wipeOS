@@ -47,6 +47,14 @@ if [ "$(git -C "$repo" config core.hooksPath)" != .githooks ]; then
 fi
 [ $pre_ok = 1 ] || exit 2
 
+# The throwaway repo in Parts 2 and 3 has no defconfig or .cache/, so
+# lint.sh there can't find checkpatch by itself; hand it the same copy
+# the real repo uses (D41).
+if [ -z "${CHECKPATCH:-}" ]; then
+	CHECKPATCH=$("$repo/scripts/fetch-checkpatch.sh") || exit 2
+	export CHECKPATCH
+fi
+
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 
@@ -408,10 +416,6 @@ cp "$repo/scripts/lint.sh" "$h/scripts/"
 cp -r "$repo/.githooks" "$repo/.checkpatch.conf" "$h/"
 mkdir -p "$h/.claude/hooks"
 cp "$claude_hook" "$h/.claude/hooks/"
-# lint.sh finds checkpatch and the cross gcc under buildroot/, so point
-# the throwaway repo at the real one.
-[ -e "$repo/buildroot" ] && ln -s "$repo/buildroot" "$h/buildroot"
-echo buildroot > "$h/.gitignore"
 
 good='#include <stdio.h>
 

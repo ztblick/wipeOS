@@ -24,6 +24,10 @@
 # Exit: 0 clean, 1 findings, 2 a tool is missing or the arguments are bad.
 # A missing tool fails the run rather than skipping its checks.
 #
+# Tools: checkpatch.pl from scripts/fetch-checkpatch.sh (D41); gcc for
+# x86_64 (on another host, Ubuntu's gcc-x86-64-linux-gnu and
+# libc6-dev-amd64-cross; D42); cppcheck; perl.
+#
 # Overrides: CHECKPATCH=/path/to/checkpatch.pl, LINT_CC=/path/to/gcc
 
 set -uo pipefail
@@ -62,34 +66,33 @@ usage() {
 
 # ---- Find the tools --------------------------------------------------
 
-# checkpatch.pl: Buildroot already unpacked the kernel we build, so use
-# that tree's copy; it then matches our kernel version.
+# checkpatch.pl: the copy scripts/fetch-checkpatch.sh keeps for the
+# kernel version our defconfig pins (D41). Every host runs the same file,
+# with or without a kernel build.
 checkpatch=${CHECKPATCH:-}
 if [ -z "$checkpatch" ]; then
-	checkpatch=$(ls -d "$repo"/buildroot/output/build/linux-*/scripts/checkpatch.pl \
-		2>/dev/null | sort -V | tail -n 1)
+	version=$(sed -n 's/^BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="\(.*\)"$/\1/p' \
+		"$repo/configs/wipeOS_x86_64_defconfig" 2>/dev/null)
+	checkpatch=$repo/.cache/checkpatch/$version/checkpatch.pl
 fi
-if [ -z "$checkpatch" ] || [ ! -f "$checkpatch" ]; then
-	echo "lint: checkpatch.pl not found. Build the kernel once (make in" \
-	     "buildroot/), or set CHECKPATCH=/path/to/checkpatch.pl" >&2
+if [ ! -f "$checkpatch" ]; then
+	echo "lint: checkpatch.pl not found at $checkpatch. Run" \
+	     "scripts/fetch-checkpatch.sh, or set CHECKPATCH=/path/to/checkpatch.pl" >&2
 	exit 2
 fi
 
-# The compiler: prefer Buildroot's x86_64 cross gcc, so the analyzer sees
-# the same headers and target as the image (D17); x86-only code won't
-# compile with the aarch64 host gcc. Fall back to host gcc if the cross
-# gcc is missing or was built without the analyzer.
+# The compiler always targets x86_64 (D17, D42), so x86-only code lints
+# the same on every host: gcc on an x86_64 host, the x86_64 cross gcc on
+# any other. On Ubuntu 26.04 both are the same gcc release, so the laptop
+# and CI apply the same warnings and analyzer. There is no fallback: a
+# missing compiler, or one without the analyzer, fails the run.
 cc=${LINT_CC:-}
 if [ -z "$cc" ]; then
-	# Absolute path: the staged mode runs gcc from a temporary directory.
-	cc=$(ls "$repo"/buildroot/output/host/bin/*-buildroot-linux-gnu-gcc \
-		2>/dev/null | head -n 1)
-	if [ -n "$cc" ] && ! echo 'int x;' |
-	   "$cc" -fanalyzer -x c -c -o /dev/null - 2>/dev/null; then
-		echo "lint: $cc has no -fanalyzer; using host gcc" >&2
-		cc=
+	if [ "$(uname -m)" = x86_64 ]; then
+		cc=gcc
+	else
+		cc=x86_64-linux-gnu-gcc
 	fi
-	cc=${cc:-gcc}
 fi
 for tool in "$cc" cppcheck perl; do
 	command -v "$tool" >/dev/null 2>&1 || {
@@ -97,6 +100,11 @@ for tool in "$cc" cppcheck perl; do
 		exit 2
 	}
 done
+if ! echo 'int x;' | "$cc" -fanalyzer -x c -c -o /dev/null - 2>/dev/null; then
+	echo "lint: $cc can't compile with -fanalyzer (see scripts/lint.sh" \
+	     "header)" >&2
+	exit 2
+fi
 
 # ---- Decide what to lint ---------------------------------------------
 
@@ -147,6 +155,13 @@ fi
 
 failed=0
 section() { printf '\n== %s\n' "$1"; }
+
+# The versions, so a difference between the laptop and CI shows in the
+# logs (D42).
+section "tools"
+echo "compiler:   $("$cc" --version | head -n 1)"
+echo "cppcheck:   $(cppcheck --version)"
+echo "checkpatch: $checkpatch"
 
 # ---- 1. Style: checkpatch --------------------------------------------
 
