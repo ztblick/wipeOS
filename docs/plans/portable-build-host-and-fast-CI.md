@@ -306,7 +306,8 @@ Claude Code can't do these. List them in Outcome as a checklist.
     - `run.sh --no-build --accel tcg`: SUCCESS, exit 0, 1.6 s.
     - `run.sh --no-build --test-fail`: `FAIL reason=test_fail`, exit 1.
     - `run.sh --no-build --mem 4`: SUCCESS, exit 0; 2 huge pages requested, 1 reserved, with the warning. This matches the deferred question "Huge-page count in QEMU above 3 GiB" (same result on Oct 20).
-    - Not tested on the cluster: `run.sh`'s own build step (`make wipeos-stub-rebuild && make`), `accel=kvm`, and `--accel kvm` exiting 2 without KVM.
+    - `run.sh` with its build step (`make wipeos-stub-rebuild && make`): build 53.4 s, then SUCCESS, boot 1.6 s (`logs/run-20261026-220059.log`).
+    - Not tested on the cluster: `accel=kvm`, and `--accel kvm` exiting 2 without KVM.
 - **Image size:** not affected; nothing in the image changed.
 - **Choices made within delegated scope:**
   - **Fetch:** `curl -fsSL --retry 3` from the stable tree's `plain/` endpoint. Files download into a temporary directory beside the cache and are renamed into place, so a set is never half there. It also checks that `checkpatch.pl` starts with `#!`, so an HTML error or bot-check page isn't accepted as the script.
@@ -351,5 +352,5 @@ Claude Code can't do these. List them in Outcome as a checklist.
 - **Done by Zach:**
   - [x] Register `guard-git.py` in `.claude/settings.json` (the JSON in "Done by Zach" above), on this branch, then rerun `scripts/hooks-selftest.sh`. Commit `d6a001d`.
   - [x] Add the ruleset on `main`: require the check **`lint and self-tests`**, 0 approvals, block force pushes, restrict deletions, empty bypass list. CI has already run once on pull request #1, so the check can be selected.
-  - [ ] Boot on the cluster: `scripts/run.sh` (`accel=kvm`, exit 0); `scripts/run.sh --no-build --accel tcg` (`accel=tcg`, exit 0); `scripts/run.sh --no-build --test-fail` (exit 1); `scripts/run.sh --no-build --mem 4` (exit 0, 1 GB pages reserved). The three `--no-build` boots pass under TCG (see "Verified"); `run.sh` with its build step, and `accel=kvm`, are still open, the second blocked on a node with KVM.
+  - [ ] Boot on the cluster: `scripts/run.sh` (`accel=kvm`, exit 0); `scripts/run.sh --no-build --accel tcg` (`accel=tcg`, exit 0); `scripts/run.sh --no-build --test-fail` (exit 1); `scripts/run.sh --no-build --mem 4` (exit 0, 1 GB pages reserved). All four pass under TCG, `run.sh` with its build step included (see "Verified"); only `accel=kvm` is still open, blocked on a node with KVM.
   - [ ] Review and merge pull request #1.
