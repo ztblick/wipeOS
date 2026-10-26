@@ -49,7 +49,7 @@ Three kinds of machine, each with its own job (D38). `uname -m` tells you where 
 | --- | --- | --- |
 | Laptop | Windows on Arm, WSL2 with Ubuntu 26.04, **aarch64**, 8 cores, 8 GB | Editing, Claude Code, lint, the self-tests, git and `gh`, SSH to the cluster. No builds or boots. |
 | GitHub-hosted runners | x86_64, the job in an `ubuntu:26.04` container | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check |
-| Cluster | x86_64 Linux servers, reached over SSH | Builds and QEMU boots, with KVM. I run these. |
+| Cluster | x86_64 Linux servers, reached over SSH | Builds and QEMU boots, with KVM where the node has it (D39). I run these. |
 
 The target is **x86_64** (D17). Buildroot cross-compiles the image with its own toolchain, and lint compiles for x86_64 on every machine (D42).
 

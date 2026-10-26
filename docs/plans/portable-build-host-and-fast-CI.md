@@ -345,7 +345,7 @@ Claude Code can't do these. List them in Outcome as a checklist.
   - `demo/fill/fill-demo.c` is tracked C outside `src/`, so lint (`C_DIRS=(src)`) and CI don't check it.
   - For plan 2: GitHub-hosted runners have `/dev/kvm`, but the runner user can't open it without a udev rule, so `--accel auto` will choose TCG there until the workflow grants access.
   - The `Write(/.github/workflows/**)` entry in the `ask` list is redundant: an `Edit(...)` rule covers every tool that edits files. It's harmless.
-  - The cluster node used has no KVM (see "Verified"), but D38's rationale and CLAUDE.md's machine table say cluster boots run "with KVM". Boots work under TCG; the wording overstates what this node gives us. Whether another cluster node has KVM is unknown.
+  - The cluster node used has no KVM (see "Verified"), but D38's rationale and CLAUDE.md's machine table said cluster boots run "with KVM". At Zach's request, CLAUDE.md now says "with KVM where the node has it (D39)". D38's rationale is part of an accepted decision's body, so it stays as written; its Decision text makes no KVM claim. Whether another cluster node has KVM is unknown.
   - `run.sh` names its log by the second, so runs that start in the same second write the same log, and the last one wins. Seen on the cluster when four runs failed instantly.
   - `run.sh` doesn't pass `-nic none`, so every test VM gets QEMU's default e1000 network card (and needs its boot ROM).
 - **Done by Zach:**
