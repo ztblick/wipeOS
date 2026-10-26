@@ -43,14 +43,30 @@ If the code contradicts a record, or a record looks out of date, tell me. Don't 
 
 ## Development environment
 
-- **Host:** Windows laptop on ARM silicon. You are running inside WSL2 (Ubuntu), so the host is **aarch64**. WSL has 8 cores and 8 GB RAM.
-- **Target:** **x86_64** (D17). Buildroot cross-compiles everything with its own toolchain; nothing built for the target runs natively on this host.
-- **QEMU:** the image boots with `qemu-system-x86_64` under full software emulation (TCG). There is no KVM for x86 guests on this host, so never add `-enable-kvm`, `-accel kvm` or `-cpu host`. Boots are slow; keep guest RAM at 1 GiB unless a task needs more.
+Three kinds of machine, each with its own job (D38). `uname -m` tells you where you are: `aarch64` is the laptop.
+
+| Machine | What it is | What runs there |
+| --- | --- | --- |
+| Laptop | Windows on Arm, WSL2 with Ubuntu 26.04, **aarch64**, 8 cores, 8 GB | Editing, Claude Code, lint, the self-tests, git and `gh`, SSH to the cluster. No builds or boots. |
+| GitHub-hosted runners | x86_64, the job in an `ubuntu:26.04` container | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check |
+| Cluster | x86_64 Linux servers, reached over SSH | Builds and QEMU boots, with KVM. I run these. |
+
+The target is **x86_64** (D17). Buildroot cross-compiles the image with its own toolchain, and lint compiles for x86_64 on every machine (D42).
+
+**Laptop rules.**
+
+- **No builds or boots** (D40): no `make`, no `scripts/run.sh` except `--help`, no `qemu-system-x86_64`. Verify through CI, or ask me to run it on the cluster.
+- **Lint** uses the x86_64 cross compiler, `x86_64-linux-gnu-gcc`, the same gcc release CI uses (D42).
 - **Windows interop is off** (`appendWindowsPath = false` in `/etc/wsl.conf`). Don't call Windows executables (`*.exe`, `powershell`, `cmd.exe`) and never work under `/mnt/c`: Buildroot breaks on paths with spaces and on the Windows filesystem.
-- **Builds are expensive here.** Never run `make clean`, `make distclean`, delete `output/`, or trigger a toolchain rebuild without asking first. Use the narrowest rebuild target that works (`make linux-rebuild`, `make <pkg>-rebuild`).
 - Don't install system packages (apt, pip, global npm) without asking. Tell me what's missing and why.
 
-These rules are enforced by `.claude/hooks/guard-build.py` (D35): the "never" rules are denied, and the "ask first" rules, plus any `sudo`, bring up a permission prompt for me.
+**Build-host rules** (the cluster, or any x86_64 Linux machine you are on):
+
+- **Builds are expensive.** Never run `make clean`, `make distclean`, delete `output/`, or trigger a toolchain rebuild without asking first. Use the narrowest rebuild target that works (`make linux-rebuild`, `make <pkg>-rebuild`).
+- **QEMU** gets KVM through `run.sh --accel auto` (D39) when the host has it. Never add KVM flags (`-enable-kvm`, `-accel kvm`, `-cpu host`) by hand. Keep guest RAM at 1 GiB unless a task needs more.
+- Don't install system packages without asking.
+
+These rules are enforced by `.claude/hooks/guard-build.py` (D35, D40): the "never" rules are denied, and the "ask first" rules, plus any `sudo`, bring up a permission prompt for me.
 
 ## Project layout
 
@@ -63,12 +79,15 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/docs/okrs.md` | This week's OKRs and past weeks |
 | `~/wipeOS/docs/research/` | Research notes behind specific decisions |
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
-| `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35) and the index check at Stop (D36) |
-| `~/wipeOS/buildroot` | Upstream Buildroot checkout. Run every `make` from here. Don't edit files in it unless I ask. |
+| `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35, D40), the git guard (D44) and the index check at Stop (D36) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43) |
+| `~/wipeOS/buildroot` | Upstream Buildroot checkout, used on build hosts. Run every `make` from here. Don't edit files in it unless I ask. |
 | `~/wipeOS/configs/linux.config` | Our pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Our Buildroot settings |
 | `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the hooks in `.claude/hooks/` (D37) |
+| `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches the kernel's `checkpatch.pl` for lint into `.cache/` (D41) |
+| `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
 | `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | Buildroot package for the stub (D26) |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | Make the repo a Buildroot external tree (D31) |
@@ -81,9 +100,10 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 
 ## Commands
 
-Build, boot and rebuild commands are in `README.md`, imported above. Run every `make` from `~/wipeOS/buildroot`. If a command or path changes, update `README.md` in the same step and tell me.
+Build, boot and rebuild commands are in `README.md`, imported above. They run on build hosts only (D40). Run every `make` from `~/wipeOS/buildroot`. If a command or path changes, update `README.md` in the same step and tell me.
 
-- To boot the image yourself, use `scripts/run.sh` (add `--no-build` when the image is current). It applies a timeout and writes the log to `logs/`; tell me the log path and the exit code. For a boot `run.sh` can't express, call QEMU under `timeout`, capture serial output to a file under `/tmp`, and tell me the path.
+- On a build host, boot the image with `scripts/run.sh` (add `--no-build` when the image is current). It applies a timeout and writes the log to `logs/`; tell me the log path and the exit code. For a boot `run.sh` can't express, call QEMU under `timeout`, capture serial output to a file under `/tmp`, and tell me the path. On the laptop, a boot is done by CI (once plan 2 lands) or by me on the cluster.
+- `scripts/lint.sh` lints all C under `src/`, and `scripts/lint-selftest.sh` tests the lint itself. Both run anywhere, including the laptop. In a new clone, run `scripts/fetch-checkpatch.sh` once first (D41).
 - After any change in `context/`, run `scripts/context_index.py`. `scripts/context_index.py --check` exits 1 if the index is stale.
 - After a change to a hook in `.claude/hooks/`, run `scripts/hooks-selftest.sh`. It exits 0 only if every case gives the expected block, ask or pass.
 - `make menuconfig` and `make linux-menuconfig` are interactive and you can't drive them. When a kernel or Buildroot option needs to change, list the exact symbols and values and I'll make the change.
@@ -147,12 +167,19 @@ This covers wipe and fill paths, memory discovery, label generation, the challen
 
 ## Verifying changes
 
-- After a change, build with the narrowest target and, if relevant, boot in QEMU. Report the commands you ran and what happened.
-- "It compiles" is not "it works." If you couldn't verify something, say so plainly.
+- **On the laptop:** run lint and the self-tests that cover the change (`scripts/lint.sh`, `scripts/lint-selftest.sh`, `scripts/hooks-selftest.sh`, `scripts/context_index.py --check`). Then push the branch and read the CI result on the pull request: `gh pr checks`, or `gh run view --log-failed` on failure. A change that needs a boot, or a `bzImage` size, is verified in CI once plan 2 lands, or by me on the cluster; say which in the report.
+- **On a build host:** after a change, build with the narrowest target and, if relevant, boot in QEMU.
+- Report the commands you ran and what happened. "It compiles" is not "it works." If you couldn't verify something, say so plainly.
 
 ## Git
 
-Don't commit, push or rewrite history unless I ask. When a step is done, suggest a one-line commit message.
+Changes reach `main` only through pull requests that I merge (D44).
+
+- Start from an up-to-date `main` (`git switch main && git pull --ff-only`), and create a branch named `claude/<short-topic>`.
+- Commit on the branch as you go, with one-line messages; the pre-commit hook lints every commit.
+- Push with `git push -u origin <branch>`, and open a pull request to `main` with `gh pr create`. Later pushes to the branch update it. Link the pull request in your end-of-task report.
+- **Never:** commit on `main`, push to `main`, force-push, delete a remote branch, merge or approve a pull request, change repository settings, rulesets, secrets or variables, write through `gh api`, or print the `gh` token. `.claude/hooks/guard-git.py` denies these, and a ruleset on `main` requires a pull request and the CI check.
+- Without a plan, the "propose first" rule above still applies before you start a branch.
 
 ## When you finish a task, report
 

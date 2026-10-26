@@ -7,6 +7,7 @@
 # Part 1: guard-lint.py, the lint bypass guard (D34).
 # Part 2: guard-build.py, the build-safety guard (D35).
 # Part 3: check-index.py, the Stop hook for context/INDEX.md (D36).
+# Part 4: guard-git.py, the git workflow guard (D44).
 # lint-c.sh has its own cases in scripts/lint-selftest.sh.
 #
 # Usage:  scripts/hooks-selftest.sh [-v]
@@ -38,6 +39,10 @@ trap 'rm -rf "$tmp"' EXIT
 # depend on the host; the KVM-present cases point it at a real file.
 no_kvm=$tmp/no-kvm
 touch "$tmp/kvm"
+# Likewise the host architecture (D40) and the checked-out branch (D44):
+# an x86_64 host on a feature branch, unless a case says otherwise.
+host_arch=x86_64
+branch=claude/selftest
 
 ncases=0
 nfail=0
@@ -74,6 +79,7 @@ hook() {
 	local want=$1 h=$2 label=$3 json=$4 out err rc got
 	shift 4
 	out=$(env CLAUDE_PROJECT_DIR="$repo" GUARD_BUILD_KVM_DEVICE="$no_kvm" \
+		GUARD_BUILD_HOST_ARCH="$host_arch" GUARD_GIT_BRANCH="$branch" \
 		"$@" python3 "$hooks/$h" <<<"$json" 2>"$tmp/err")
 	rc=$?
 	err=$(cat "$tmp/err")
@@ -143,6 +149,16 @@ lint pass 'scripts/lint.sh'
 lint pass 'bash scripts/lint-selftest.sh'
 lint pass 'scripts/hooks-selftest.sh'
 lint pass 'bash scripts/hooks-selftest.sh -v'
+
+# The fetch script and the CI workflow are lint infrastructure (D41, D43).
+lint block 'echo x > .github/workflows/ci.yml'
+lint block 'rm -rf .github/workflows'
+lint block 'sed -i s/a/b/ scripts/fetch-checkpatch.sh'
+lint block 'cp x scripts/fetch-checkpatch.sh'
+lint pass 'cat .github/workflows/ci.yml'
+lint pass 'grep -n curl scripts/fetch-checkpatch.sh'
+lint pass 'scripts/fetch-checkpatch.sh'
+lint pass 'bash scripts/fetch-checkpatch.sh'
 
 src=$repo/src/stub/util.c
 supp='// cppcheck-suppress nullPointer ; checked above'
@@ -264,6 +280,27 @@ build pass "echo '{\"command\":\"cp a /mnt/c/x\"}' | python3 .claude/hooks/guard
 hook pass guard-build.py "ignores tools other than Bash" \
 	'{"tool_name":"Edit","tool_input":{"command":"make clean"}}'
 
+# Deny: builds and boots on a host that isn't x86_64 (D40). The cases
+# above show the same commands passing on x86_64.
+arm() { build "$1" "$2" GUARD_BUILD_HOST_ARCH=aarch64; }
+arm block 'make'
+arm block 'make -C buildroot'
+arm block 'cd buildroot && make'
+arm block 'make -C src/stub'
+arm block 'nice gmake -j8'
+arm block 'bash -c "make linux-rebuild"'
+arm block 'scripts/run.sh'
+arm block './scripts/run.sh'
+arm block 'bash scripts/run.sh --no-build'
+arm block '~/wipeOS/scripts/run.sh --mem 3'
+arm block 'qemu-system-x86_64 -m 1G'
+arm block 'timeout 600 qemu-system-x86_64 -m 1G'
+arm pass 'scripts/run.sh --help'
+arm pass 'scripts/run.sh -h'
+arm pass 'scripts/lint.sh'
+arm pass 'scripts/fetch-checkpatch.sh'
+arm pass 'git status'
+
 # ---- Part 3: check-index.py ----
 
 echo "Part 3: index check"
@@ -318,6 +355,87 @@ if [ -d "$repo/buildroot/.git" ]; then
 	report pass "$(outcome $rc "$out")" \
 		"check-index.py: run from buildroot/" "$out"
 fi
+
+# ---- Part 4: guard-git.py ----
+
+echo "Part 4: git guard"
+
+gitg() { hook "$1" guard-git.py "$2" "$(bash_json "$2")" "${@:3}"; }
+onmain() { gitg "$1" "$2" GUARD_GIT_BRANCH=main; }
+
+# Deny: pushes that force or delete.
+gitg block 'git push --force'
+gitg block 'git push -f origin claude/x'
+gitg block 'git push -uf origin claude/x'
+gitg block 'git push --force-with-lease'
+gitg block 'git push --force-with-lease=claude/x origin claude/x'
+gitg block 'git push --force-if-includes origin claude/x'
+gitg block 'git push --mirror'
+gitg block 'git push --all origin'
+gitg block 'git push --delete origin claude/x'
+gitg block 'git push -d origin claude/x'
+gitg block 'git push --prune origin'
+gitg block 'git push origin +claude/x'
+gitg block 'git push origin :claude/x'
+
+# Deny: pushes to main, from any branch.
+gitg block 'git push origin main'
+gitg block 'git push origin HEAD:main'
+gitg block 'git push origin claude/x:refs/heads/main'
+gitg block 'git push origin refs/heads/main'
+gitg block 'git -C . push origin main'
+gitg block 'timeout 60 git push origin main'
+gitg block 'bash -c "git push origin main"'
+
+# Deny: merging, approving, and changing the repository or the login.
+gitg block 'gh pr merge 3'
+gitg block 'gh pr merge --squash --delete-branch 3'
+gitg block 'gh pr review 3 --approve'
+gitg block 'gh pr review -a 3'
+gitg block 'gh api -X POST repos/ztblick/wipeOS/pulls/3/merge'
+gitg block 'gh api --method PUT repos/ztblick/wipeOS/pulls/3/merge'
+gitg block 'gh api -XDELETE repos/ztblick/wipeOS/rulesets/1'
+gitg block 'gh api repos/ztblick/wipeOS/issues -f title=x'
+gitg block 'gh api repos/ztblick/wipeOS/rulesets --input rules.json'
+gitg block 'gh repo edit --visibility private'
+gitg block 'gh repo delete ztblick/wipeOS'
+gitg block 'gh secret set TOKEN'
+gitg block 'gh variable delete X'
+gitg block 'gh auth token'
+gitg block 'gh auth logout'
+gitg block 'echo "unbalanced'
+
+# Deny: with main checked out, anything that commits or pushes it.
+onmain block 'git commit -m x'
+onmain block 'git push'
+onmain block 'git push origin'
+onmain block 'git push origin HEAD'
+onmain block 'git merge claude/x'
+onmain block 'git rebase origin/main'
+onmain block 'git cherry-pick abc123'
+
+# Pass: the workflow D44 describes.
+gitg pass 'git switch -c claude/x'
+gitg pass 'git commit -m x'
+gitg pass 'git push -u origin claude/x'
+gitg pass 'git push'
+gitg pass 'git push origin HEAD'
+gitg pass 'git push -o ci.skip origin claude/x'
+gitg pass 'gh pr create --base main --fill'
+gitg pass 'gh pr view 3'
+gitg pass 'gh pr checks 3'
+gitg pass 'gh pr review 3 --comment -b looks-good'
+gitg pass 'gh run view 123 --log-failed'
+gitg pass 'gh api repos/ztblick/wipeOS/pulls'
+gitg pass 'gh api -X GET repos/ztblick/wipeOS'
+gitg pass 'gh repo view'
+gitg pass 'gh auth status'
+onmain pass 'git pull --ff-only'
+onmain pass 'git switch -c claude/x'
+onmain pass 'git fetch origin'
+onmain pass 'git status'
+hook pass guard-git.py "ignores tools other than Bash" \
+	'{"tool_name":"Edit","tool_input":{"command":"gh pr merge 3"}}'
 
 echo
 echo "$ncases cases, $nfail failed"

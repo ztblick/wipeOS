@@ -1,0 +1,66 @@
+# Fast CI (D43): lint, the lint and hooks self-tests, and the context
+# index check, on every pull request to main and every push to main.
+# No build or boot yet; that is plan 2. The job runs in the ubuntu:26.04
+# container so gcc and cppcheck are the same releases as on the laptop
+# (D42). Protected like the lint scripts (D34): a weakened workflow is a
+# way around the lint.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Read-only and no secrets, so pull requests from forks are safe.
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run; runs on main
+# always finish, so every commit on main gets a result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: lint and self-tests
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 15
+    steps:
+      # Before checkout, so checkout finds git and makes a real clone
+      # (lint lists files with git ls-files).
+      - name: Install tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git gcc libc6-dev cppcheck perl python3 curl ca-certificates
+
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # The container runs as root over a workspace owned by the runner's
+      # user, so git needs to be told the checkout is safe.
+      # lint-selftest.sh refuses to run unless the repo's hooks are on.
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config core.hooksPath .githooks
+
+      - name: Fetch checkpatch
+        run: scripts/fetch-checkpatch.sh
+
+      - name: Lint
+        run: scripts/lint.sh
+
+      - name: Lint self-test
+        run: scripts/lint-selftest.sh
+
+      - name: Hooks self-test
+        run: scripts/hooks-selftest.sh
+
+      - name: Context index is current
+        run: scripts/context_index.py --check

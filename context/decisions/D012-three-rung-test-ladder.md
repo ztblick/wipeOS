@@ -1,7 +1,8 @@
 ---
 id: D12
 title: "Three-rung test ladder"
-status: accepted
+status: superseded
+superseded_by: D38
 date: null
 ---
 
