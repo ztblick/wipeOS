@@ -98,12 +98,23 @@ gh auth login
 
 **WSL notes.** Windows paths are kept out of the Linux PATH (`appendWindowsPath = false` in `/etc/wsl.conf`), because Buildroot fails on paths with spaces. VS Code still opens with `code .` through an alias in `~/.bashrc`.
 
-**Build host (cluster or any x86_64 Linux).** Buildroot needs its standard host packages (see the "System requirements" chapter of the Buildroot manual), and `run.sh` needs the distribution's `qemu-system-x86_64` (D23). For KVM, your user needs read-write access to `/dev/kvm`, usually through the `kvm` group.
+**Build host (cluster or any x86_64 Linux).** What the host needs:
+
+- **Buildroot's host packages** (the "System requirements" chapter of the Buildroot manual), and `qemu-system-x86_64` under that name for `run.sh` (D23). On Debian or Ubuntu, this covers them (`libncurses-dev` is only for `make menuconfig`):
+
+  ```bash
+  sudo apt install build-essential bc bzip2 cpio diffutils file findutils gzip patch perl python3 rsync sed tar unzip wget git libncurses-dev qemu-system-x86
+  ```
+
+- **Internet access** for the first build: Buildroot downloads about 1.2 GB of sources (the kernel, GNU toolchain and packages) into `buildroot/dl/`, and checks each against its hash.
+- **Disk:** about 11 GB for `buildroot/output/` and `buildroot/dl/`.
+- **KVM** (optional, for fast boots, D39): your user needs read-write access to `/dev/kvm`, usually through the `kvm` group. `[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo KVM usable` checks it. Without it, `run.sh` falls back to software emulation.
+
+The repo is public, so a build host can clone it over HTTPS without a GitHub key. Buildroot must be exactly the tag below: the defconfig takes the kernel's hash from that tag's `board/qemu/patches`.
 
 ```bash
-git clone git@github.com:ztblick/wipeOS.git ~/wipeOS
+git clone https://github.com/ztblick/wipeOS.git ~/wipeOS
 cd ~/wipeOS
-git config core.hooksPath .githooks
 git clone --branch 2026.02.3 https://gitlab.com/buildroot.org/buildroot.git buildroot
 cd buildroot
 make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig
@@ -111,7 +122,9 @@ make
 cd .. && scripts/run.sh --no-build
 ```
 
-The first `make` builds the toolchain, kernel, stub and initramfs and takes about 40 minutes; the image lands in `buildroot/output/images/bzImage`. Config files refer to the repo as `$(BR2_EXTERNAL_WIPEOS_PATH)`, so it can live anywhere. To lint on a build host, also run `scripts/fetch-checkpatch.sh`; lint uses the host's own gcc and cppcheck there.
+The first `make` builds the toolchain, kernel, stub and initramfs; the image lands in `buildroot/output/images/bzImage`. On the laptop's 8 cores it took about 40 minutes; Buildroot uses every core, so a larger server is faster. Config files refer to the repo as `$(BR2_EXTERNAL_WIPEOS_PATH)`, so it can live anywhere. The `RUN` line of the boot log should show `accel=kvm` if KVM is usable.
+
+To commit from a build host, also run `git config core.hooksPath .githooks`, install cppcheck 2.11 or later, and run `scripts/fetch-checkpatch.sh`. The pre-commit lint then runs with the host's own gcc and cppcheck, and it refuses a commit if a tool is missing.
 
 ### Where things live
 

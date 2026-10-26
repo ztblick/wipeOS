@@ -38,7 +38,15 @@
             "timeout": 10,
             "onFailure": "block",
             "statusMessage": "Checking the build and environment rules"
-          }
+          },
+          {
+          "type": "command",
+          "command": "python3",
+          "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-git.py"],
+          "timeout": 10,
+          "onFailure": "block",
+          "statusMessage": "Checking the git workflow rules"
+        }
         ]
       },
       {
