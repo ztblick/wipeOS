@@ -9,7 +9,10 @@
       "Edit(/.checkpatch.conf)",
       "Edit(/.githooks/**)",
       "Edit(/.claude/settings.local.json)",
-      "Edit(/.git/**)"
+      "Edit(/.git/**)",
+      "Edit(/scripts/fetch-checkpatch.sh)",
+      "Edit(/.github/workflows/**)",
+      "Write(/.github/workflows/**)"
     ],
     "deny": [
       "Edit(/docs/design.md)"
