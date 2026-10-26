@@ -11,20 +11,25 @@ Denies (exit 2, reason on stderr, which Claude sees):
      x86 guests on the laptop; on a host that has it, the rule lifts.
   2. Windows executables: a command ending in .exe, powershell, pwsh.
   3. The Windows filesystem: any word under /mnt/<drive letter>/.
+  4. Builds and boots on a host that isn't x86_64 (D40, amending D35):
+     make or gmake; scripts/run.sh, run directly or through bash or sh,
+     unless an argument is -h or --help; qemu-system-x86_64. Builds and
+     boots run on x86_64 hosts only (D38): CI and the cluster.
 
 Asks Zach (permission "ask", with the reason in the prompt):
-  4. make clean, make distclean, make <pkg>-dirclean;
-  5. a toolchain rebuild: -rebuild, -reconfigure or -reinstall of
+  5. make clean, make distclean, make <pkg>-dirclean;
+  6. a toolchain rebuild: -rebuild, -reconfigure or -reinstall of
      toolchain*, host-gcc*, host-binutils*, glibc or linux-headers;
-  6. rm of build output: a path whose last part is output (or a glob
+  7. rm of build output: a path whose last part is output (or a glob
      that matches it), a path containing output/, or the buildroot
      checkout;
-  7. system packages: apt, apt-get, aptitude, dpkg -i, snap install,
+  8. system packages: apt, apt-get, aptitude, dpkg -i, snap install,
      pip install, python -m pip install, npm install -g;
-  8. sudo, for anything.
+  9. sudo, for anything.
 
-Everything else passes: make, make linux-rebuild, make <pkg>-rebuild,
-scripts/run.sh, and qemu-system-x86_64 without KVM flags.
+Everything else passes. On an x86_64 host that includes make, make
+linux-rebuild, make <pkg>-rebuild, scripts/run.sh, and qemu-system-x86_64
+without KVM flags.
 
 Each simple command is checked on its own, so cd buildroot && make clean
 is caught, and so are commands run through timeout, env, nice, sudo or
@@ -40,8 +45,10 @@ is denied too. Any crash also blocks, because the hook is registered with
 onFailure "block".
 
 The KVM device checked is /dev/kvm, or GUARD_BUILD_KVM_DEVICE if set in
-the hook's own environment (scripts/hooks-selftest.sh uses it; a Bash
-command can't set it, since Claude Code starts the hook, not the shell).
+the hook's own environment, and the host architecture is
+platform.machine(), or GUARD_BUILD_HOST_ARCH if set. Both overrides are
+for scripts/hooks-selftest.sh; a Bash command can't set them, since
+Claude Code starts the hook, not the shell.
 
 Test without Claude Code by piping in the JSON it would send:
   echo '{"tool_name":"Bash","tool_input":{"command":"make clean"}}' |
@@ -51,6 +58,7 @@ Test without Claude Code by piping in the JSON it would send:
 import fnmatch
 import json
 import os
+import platform
 import re
 import shlex
 import sys
@@ -63,6 +71,9 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 WRAPPERS = {"env", "timeout", "nice", "nohup", "exec", "command", "time",
             "stdbuf", "xargs", "sudo"}
 SHELLS = {"bash", "sh", "dash", "zsh"}
+
+# Read once: the machine doesn't change during a call.
+HOST_ARCH = os.environ.get("GUARD_BUILD_HOST_ARCH") or platform.machine()
 
 
 def subcommands(cmd):
@@ -139,6 +150,33 @@ def kvm_flag(words):
     return None
 
 
+def runs_launcher(name, args):
+    """True if the command runs scripts/run.sh to build or boot, directly
+    or as the script given to bash or sh. --help only prints usage."""
+    if name in SHELLS:
+        if not args or args[0].startswith("-"):
+            return False
+        name, args = os.path.basename(args[0]), args[1:]
+    return name == "run.sh" and not any(a in ("-h", "--help")
+                                         for a in args)
+
+
+def arch_reason(name, args):
+    """D40: no builds or boots on a host that isn't x86_64."""
+    if HOST_ARCH == "x86_64":
+        return None
+    what = None
+    if name in ("make", "gmake", "qemu-system-x86_64"):
+        what = name
+    elif runs_launcher(name, args):
+        what = "scripts/run.sh"
+    if what:
+        return (f"runs {what} on this {HOST_ARCH} host. Builds and boots "
+                "run only on x86_64 hosts (D38, D40): verify through CI, "
+                "or ask Zach to run it on the cluster.")
+    return None
+
+
 def deny_reason(words):
     if not kvm_available():
         flag = kvm_flag(words)
@@ -154,7 +192,7 @@ def deny_reason(words):
         if WINDOWS_PATH.search(w):
             return (f"touches {w}, on the Windows filesystem. Buildroot "
                     "breaks there; work under ~/wipeOS.")
-    return None
+    return arch_reason(name, words[1:])
 
 
 # ------------------------------------------------------------------- ask
