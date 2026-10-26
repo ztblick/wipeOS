@@ -160,6 +160,13 @@ lint pass 'grep -n curl scripts/fetch-checkpatch.sh'
 lint pass 'scripts/fetch-checkpatch.sh'
 lint pass 'bash scripts/fetch-checkpatch.sh'
 
+# The script that decides whether CI builds (D46).
+lint block 'echo skip > scripts/ci-changes.sh'
+lint block 'sed -i s/build/skip/ scripts/ci-changes.sh'
+lint pass 'cat scripts/ci-changes.sh'
+lint pass 'scripts/ci-changes.sh HEAD^ HEAD'
+lint pass 'bash scripts/ci-changes.sh HEAD^ HEAD'
+
 src=$repo/src/stub/util.c
 supp='// cppcheck-suppress nullPointer ; checked above'
 prag='#pragma GCC diagnostic ignored "-Wformat"'
