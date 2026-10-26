@@ -299,7 +299,7 @@ Claude Code can't do these. List them in Outcome as a checklist.
     - `grep` finds WSL and aarch64 only in the laptop rows and rules of `CLAUDE.md` and `README.md`.
     - The README workstation commands work on the laptop: `core.hooksPath` is `.githooks`; the six packages are installed (checked with `dpkg -s`); fetch, lint and both self-tests pass; `gh` is logged in. Not re-run: the clone itself and `apt install`.
   - **Not run by Claude:** any build or boot. Per D40 they happen on the cluster ("Done by Zach").
-  - **Cluster (Zach, Oct 26, on h100-sxm-8-0, Ubuntu 24.04, image built from `main` with the README's build-host steps; boots at `d4a374d`):**
+  - **Cluster (Zach, Oct 26, on h100-sxm-8-0, Ubuntu 24.04, image built with the README's build-host steps; boots with the checkout at `d4a374d`):**
     - No `sudo`, so the README's `apt install` couldn't run, and QEMU wasn't installed. Rootless podman failed (no `/etc/subuid` range). QEMU 8.2.2 from Ubuntu's own packages, unpacked into `~/opt` behind a wrapper, worked; the recipe is now in the README ("QEMU without root").
     - No KVM: the node is bare metal, but `vmx` is absent from `/proc/cpuinfo` (virtualization off in the firmware) and there is no `/dev/kvm`. `--accel auto` chose TCG, as D39 intends.
     - `run.sh --no-build`: `accel=tcg`, SUCCESS, exit 0, boot 1.9 s (`logs/run-20261026-215307.log`).
