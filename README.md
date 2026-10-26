@@ -108,7 +108,27 @@ gh auth login
 
 - **Internet access** for the first build: Buildroot downloads about 1.2 GB of sources (the kernel, GNU toolchain and packages) into `buildroot/dl/`, and checks each against its hash.
 - **Disk:** about 11 GB for `buildroot/output/` and `buildroot/dl/`.
-- **KVM** (optional, for fast boots, D39): your user needs read-write access to `/dev/kvm`, usually through the `kvm` group. `[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo KVM usable` checks it. Without it, `run.sh` falls back to software emulation.
+- **KVM** (optional, for fast boots, D39): your user needs read-write access to `/dev/kvm`, usually through the `kvm` group. `[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo KVM usable` checks it. If `grep -cw vmx /proc/cpuinfo` prints 0, virtualization is off in the firmware, and only an admin can turn it on. Without KVM, `run.sh` falls back to software emulation, which still boots the 1 GiB image in about 2 seconds on the cluster.
+
+**QEMU without root.** If you can't run `apt install` (no `sudo`) on an Ubuntu host, unpack Ubuntu's own QEMU packages into your home directory and put a wrapper named `qemu-system-x86_64` on your `PATH`. It is still the distribution's QEMU (D23), and `run.sh` needs no change:
+
+```bash
+mkdir -p ~/opt/debs && cd ~/opt/debs
+apt-get download qemu-system-x86 qemu-system-common qemu-system-data seabios ipxe-qemu libfdt1 liburing2
+for f in *.deb; do dpkg -x "$f" ~/opt/qemu; done
+mkdir -p ~/opt/bin
+cat > ~/opt/bin/qemu-system-x86_64 <<'EOF'
+#!/bin/sh
+Q=$HOME/opt/qemu
+export LD_LIBRARY_PATH=$Q/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export QEMU_MODULE_DIR=$Q/usr/lib/x86_64-linux-gnu/qemu
+exec "$Q/usr/bin/qemu-system-x86_64" -L "$Q/usr/share/qemu" -L "$Q/usr/share/seabios" -L "$Q/usr/lib/ipxe/qemu" "$@"
+EOF
+chmod +x ~/opt/bin/qemu-system-x86_64
+echo 'export PATH=$HOME/opt/bin:$PATH' >> ~/.bashrc
+```
+
+`apt-get download` and `dpkg -x` fetch and unpack packages without installing them, so they need no root. The wrapper points QEMU at the unpacked libraries, its modules (Ubuntu builds TCG as a loadable module) and its firmware directories (`-L`: the BIOS and the network card's boot ROM), which it would otherwise look for under `/usr`. `libfdt1` and `liburing2` were the only libraries the cluster lacked; on another host, `LD_LIBRARY_PATH=~/opt/qemu/usr/lib/x86_64-linux-gnu ldd ~/opt/qemu/usr/bin/qemu-system-x86_64 | grep 'not found'` lists any others to download the same way.
 
 The repo is public, so a build host can clone it over HTTPS without a GitHub key. Buildroot must be exactly the tag below: the defconfig takes the kernel's hash from that tag's `board/qemu/patches`.
 
