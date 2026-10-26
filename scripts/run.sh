@@ -18,12 +18,16 @@ KERNEL=$BR/output/images/bzImage
 usage() {
 	cat <<'EOF'
 Usage: scripts/run.sh [--mode dev|prod] [--mem N] [--pages auto|4k|1g]
-                      [--no-build] [--timeout SECONDS] [--log PATH] [--test-fail]
+                      [--accel auto|kvm|tcg] [--no-build] [--timeout SECONDS]
+                      [--log PATH] [--test-fail]
 
   --mode       prod (default) powers off after the report; dev opens a shell
   --mem        guest RAM in GiB (default 1)
   --pages      auto (default): 4 KB pages up to 2 GiB, 1 GB pages from 3 GiB;
                4k: ordinary pages at any size; 1g: needs --mem 3 or more
+  --accel      auto (default): KVM if this is an x86_64 host and /dev/kvm is
+               usable, otherwise TCG (software emulation); kvm: KVM or exit 2;
+               tcg: always software emulation
   --no-build   boot the existing image without rebuilding
   --timeout    seconds before the run is stopped (default 300 in prod, none in dev)
   --log        boot log path (default logs/run-<date>-<time>.log)
@@ -41,13 +45,14 @@ need_value() {
 	[ $# -ge 2 ] || bad_usage "$1 needs a value"
 }
 
-mode=prod mem=1 pages=auto build=1 timeout_s= log= test_fail=0
+mode=prod mem=1 pages=auto accel=auto build=1 timeout_s= log= test_fail=0
 
 while [ $# -gt 0 ]; do
 	case $1 in
 	--mode) need_value "$@"; mode=$2; shift 2 ;;
 	--mem) need_value "$@"; mem=$2; shift 2 ;;
 	--pages) need_value "$@"; pages=$2; shift 2 ;;
+	--accel) need_value "$@"; accel=$2; shift 2 ;;
 	--timeout) need_value "$@"; timeout_s=$2; shift 2 ;;
 	--log) need_value "$@"; log=$2; shift 2 ;;
 	--no-build) build=0; shift ;;
@@ -66,12 +71,36 @@ case $pages in
 auto | 4k | 1g) ;;
 *) bad_usage "--pages must be auto, 4k or 1g" ;;
 esac
+case $accel in
+auto | kvm | tcg) ;;
+*) bad_usage "--accel must be auto, kvm or tcg" ;;
+esac
 if [ -n "$timeout_s" ] && ! [[ $timeout_s =~ ^[1-9][0-9]*$ ]]; then
 	bad_usage "--timeout must be a whole number of seconds, 1 or more"
 fi
 if [ -z "$timeout_s" ] && [ "$mode" = prod ]; then
 	timeout_s=300
 fi
+
+# The accelerator (D39), chosen before the build so that --accel kvm on a
+# host without KVM fails at once. KVM runs an x86_64 guest on the host's
+# own CPU, so it needs an x86_64 host and a /dev/kvm this user can open;
+# TCG translates every guest instruction in software and works anywhere.
+kvm_usable() {
+	[ "$(uname -m)" = x86_64 ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]
+}
+case $accel in
+auto)
+	if kvm_usable; then accel=kvm; else accel=tcg; fi
+	;;
+kvm)
+	if ! kvm_usable; then
+		echo "run.sh: --accel kvm needs an x86_64 host and read-write" \
+		     "access to /dev/kvm (host is $(uname -m))" >&2
+		exit 2
+	fi
+	;;
+esac
 
 # Huge pages (D22). A 1 GB page needs a free, 1 GB-aligned gigabyte.
 # The first gigabyte is always broken up (BIOS areas, the legacy hole,
@@ -127,14 +156,14 @@ if [ "$test_fail" = 1 ]; then
 	append+=" wipeos.test_fail=1"
 fi
 append+=$page_args
-qemu=(qemu-system-x86_64 -m "${mem}G" -vga none -nographic -no-reboot
-	"${cpu_args[@]}" -kernel "$KERNEL" -append "$append")
+qemu=(qemu-system-x86_64 -accel "$accel" -m "${mem}G" -vga none -nographic
+	-no-reboot "${cpu_args[@]}" -kernel "$KERNEL" -append "$append")
 
 # Header lines in the same key=value style as the stub's report.
 {
 	echo "RUN qemu_version=\"$(qemu-system-x86_64 --version | head -n 1)\""
 	echo "RUN git=$(git -C "$REPO" describe --always --dirty 2>/dev/null || echo unknown)" \
-		"mode=$mode mem_gib=$mem pages=$pages hugepages_requested=$hugepages" \
+		"mode=$mode accel=$accel mem_gib=$mem pages=$pages hugepages_requested=$hugepages" \
 		"timeout_s=${timeout_s:-none}"
 	echo "RUN command=\"${qemu[*]}\""
 } >"$log"
