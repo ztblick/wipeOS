@@ -298,7 +298,15 @@ Claude Code can't do these. List them in Outcome as a checklist.
   - **Step 5.**
     - `grep` finds WSL and aarch64 only in the laptop rows and rules of `CLAUDE.md` and `README.md`.
     - The README workstation commands work on the laptop: `core.hooksPath` is `.githooks`; the six packages are installed (checked with `dpkg -s`); fetch, lint and both self-tests pass; `gh` is logged in. Not re-run: the clone itself and `apt install`.
-  - **Not run:** any build or boot. Per D40 they happen on the cluster ("Done by Zach").
+  - **Not run by Claude:** any build or boot. Per D40 they happen on the cluster ("Done by Zach").
+  - **Cluster (Zach, Oct 26, on h100-sxm-8-0, Ubuntu 24.04, image built from `main` with the README's build-host steps; boots at `d4a374d`):**
+    - No `sudo`, so the README's `apt install` couldn't run, and QEMU wasn't installed. Rootless podman failed (no `/etc/subuid` range). QEMU 8.2.2 from Ubuntu's own packages, unpacked into `~/opt` behind a wrapper, worked; the recipe is now in the README ("QEMU without root").
+    - No KVM: the node is bare metal, but `vmx` is absent from `/proc/cpuinfo` (virtualization off in the firmware) and there is no `/dev/kvm`. `--accel auto` chose TCG, as D39 intends.
+    - `run.sh --no-build`: `accel=tcg`, SUCCESS, exit 0, boot 1.9 s (`logs/run-20261026-215307.log`).
+    - `run.sh --no-build --accel tcg`: SUCCESS, exit 0, 1.6 s.
+    - `run.sh --no-build --test-fail`: `FAIL reason=test_fail`, exit 1.
+    - `run.sh --no-build --mem 4`: SUCCESS, exit 0; 2 huge pages requested, 1 reserved, with the warning. This matches the deferred question "Huge-page count in QEMU above 3 GiB" (same result on Oct 20).
+    - Not tested on the cluster: `run.sh`'s own build step (`make wipeos-stub-rebuild && make`), `accel=kvm`, and `--accel kvm` exiting 2 without KVM.
 - **Image size:** not affected; nothing in the image changed.
 - **Choices made within delegated scope:**
   - **Fetch:** `curl -fsSL --retry 3` from the stable tree's `plain/` endpoint. Files download into a temporary directory beside the cache and are renamed into place, so a set is never half there. It also checks that `checkpatch.pl` starts with `#!`, so an HTML error or bot-check page isn't accepted as the script.
@@ -337,8 +345,11 @@ Claude Code can't do these. List them in Outcome as a checklist.
   - `demo/fill/fill-demo.c` is tracked C outside `src/`, so lint (`C_DIRS=(src)`) and CI don't check it.
   - For plan 2: GitHub-hosted runners have `/dev/kvm`, but the runner user can't open it without a udev rule, so `--accel auto` will choose TCG there until the workflow grants access.
   - The `Write(/.github/workflows/**)` entry in the `ask` list is redundant: an `Edit(...)` rule covers every tool that edits files. It's harmless.
+  - The cluster node used has no KVM (see "Verified"), but D38's rationale and CLAUDE.md's machine table say cluster boots run "with KVM". Boots work under TCG; the wording overstates what this node gives us. Whether another cluster node has KVM is unknown.
+  - `run.sh` names its log by the second, so runs that start in the same second write the same log, and the last one wins. Seen on the cluster when four runs failed instantly.
+  - `run.sh` doesn't pass `-nic none`, so every test VM gets QEMU's default e1000 network card (and needs its boot ROM).
 - **Done by Zach:**
-  - [ ] Register `guard-git.py` in `.claude/settings.json` (the JSON in "Done by Zach" above), on this branch, then rerun `scripts/hooks-selftest.sh`.
-  - [ ] Add the ruleset on `main`: require the check **`lint and self-tests`**, 0 approvals, block force pushes, restrict deletions, empty bypass list. CI has already run once on pull request #1, so the check can be selected.
-  - [ ] Boot on the cluster: `scripts/run.sh` (`accel=kvm`, exit 0); `scripts/run.sh --no-build --accel tcg` (`accel=tcg`, exit 0); `scripts/run.sh --no-build --test-fail` (exit 1); `scripts/run.sh --no-build --mem 4` (exit 0, 1 GB pages reserved).
+  - [x] Register `guard-git.py` in `.claude/settings.json` (the JSON in "Done by Zach" above), on this branch, then rerun `scripts/hooks-selftest.sh`. Commit `d6a001d`.
+  - [x] Add the ruleset on `main`: require the check **`lint and self-tests`**, 0 approvals, block force pushes, restrict deletions, empty bypass list. CI has already run once on pull request #1, so the check can be selected.
+  - [ ] Boot on the cluster: `scripts/run.sh` (`accel=kvm`, exit 0); `scripts/run.sh --no-build --accel tcg` (`accel=tcg`, exit 0); `scripts/run.sh --no-build --test-fail` (exit 1); `scripts/run.sh --no-build --mem 4` (exit 0, 1 GB pages reserved). The three `--no-build` boots pass under TCG (see "Verified"); `run.sh` with its build step, and `accel=kvm`, are still open, the second blocked on a node with KVM.
   - [ ] Review and merge pull request #1.
