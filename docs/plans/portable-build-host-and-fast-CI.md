@@ -256,4 +256,89 @@ Claude Code can't do these. List them in Outcome as a checklist.
 
 ## Outcome
 
-<!-- Claude Code fills this in. -->
+- **Status:** done. The work is on branch `claude/portable-build-hosts-ci`, in pull request [#1](https://github.com/ztblick/wipeOS/pull/1); "Done by Zach" below is still open. Step 3 was briefly blocked by a user-level Ruff plugin that reformatted whole Python files on every edit. Zach turned the plugin off, so the proposed D46 was dropped and `guard-build.py` was rewritten from its committed version.
+- **Commits:** `dece286` (step 1), `9ceb372` (step 2), `7bedcca` (step 3), `ea2daaa` (step 4), `e0ff679` (step 5), and the records commit (step 6).
+- **Changed:**
+  - `scripts/fetch-checkpatch.sh` (new): fetches checkpatch for the pinned kernel into `.cache/checkpatch/<version>/` (D41).
+  - `.gitignore`: adds `.cache/`.
+  - `scripts/lint.sh`:
+    - checkpatch now comes from `CHECKPATCH` or the cache only (D41).
+    - The compiler is `gcc` on x86_64 and `x86_64-linux-gnu-gcc` elsewhere, with no fallback (D42).
+    - It prints a `tools` section first.
+  - `scripts/lint-selftest.sh` (harness only): exports `CHECKPATCH` from the fetch script, and drops the `buildroot` symlink in the throwaway repo.
+  - `scripts/run.sh`: `--accel auto|kvm|tcg`; `-accel` is passed to QEMU, and the `RUN` header gains `accel=` (D39).
+  - `.claude/hooks/guard-build.py`: D40's deny rule for non-x86_64 hosts, with `GUARD_BUILD_HOST_ARCH`. The docstring is renumbered and states the amendment to D35.
+  - `.claude/hooks/guard-lint.py`: protects `scripts/fetch-checkpatch.sh` and `.github/workflows/`, and lets the fetch script be run.
+  - `.claude/hooks/guard-git.py` (new): the D44 git and `gh` guard. It isn't registered yet; see "Done by Zach".
+  - `scripts/hooks-selftest.sh`:
+    - The harness defaults to `GUARD_BUILD_HOST_ARCH=x86_64` and `GUARD_GIT_BRANCH=claude/selftest`.
+    - New cases: D40 on aarch64, the new lint paths, and Part 4 for the git guard.
+  - `.github/workflows/ci.yml` (new): D43.
+  - `CLAUDE.md`: "Development environment", the layout table, "Commands", "Verifying changes" and "Git" (D45).
+  - `README.md`: "Running wipeOS" and setup split into build host and workstation, plus a section on how changes reach `main` (D45).
+  - Records: see "Records written".
+- **Verified:**
+  - **Step 0.** Preflight checks passed: `scripts/lint.sh` exits 0 on `main`; `x86_64-linux-gnu-gcc` 15.2.0; `scripts/hooks-selftest.sh` is mode 100755; the plan is on `origin/main`; D38–D45 were free.
+  - **Step 1, fetch script.** It fetches all three files for v6.18.7 from `git.kernel.org/.../stable/linux.git/plain/scripts/<file>?h=v6.18.7`, and `cmp` shows each is identical to `buildroot/output/build/linux-6.18.7/scripts/`. With the network blocked (a dead proxy), a re-run exits 0, and a fresh fetch exits 2 and leaves no partial files.
+  - **Step 1, lint.**
+    - In the main checkout and in a fresh `git worktree` with no `buildroot/`: `scripts/lint.sh` exits 0, and `scripts/lint-selftest.sh` passes 35, fails 0.
+    - Tools: `x86_64-linux-gnu-gcc` 15.2.0-16ubuntu1 and cppcheck 2.19.0.
+    - `LINT_CC=no-such-gcc scripts/lint.sh` exits 2.
+  - **Step 2.**
+    - `bash -n scripts/run.sh` passes, `--help` shows `--accel`, and `--accel bogus` and a bare `--accel` exit 3.
+    - Not run: shellcheck (not installed).
+    - Not verified: `--accel kvm` exiting 2 before the build. D35's KVM rule denies the words `--accel kvm` on any command on this host, so Claude can't run it here. It's covered by Zach's cluster boots below.
+  - **Step 3.**
+    - `scripts/hooks-selftest.sh`: 219 cases, 0 failed. `scripts/lint-selftest.sh`: 35 passed, 0 failed.
+    - Run directly, without overrides: `guard-build.py` denies `make` on this aarch64 host (exit 2), and `guard-git.py` allows `git push origin HEAD` on this branch (exit 0).
+  - **Step 4.** CI run [40373392912](https://github.com/ztblick/wipeOS/actions/runs/40373392912) on pull request #1 passed in 56 s, and its log shows every step ran:
+    - The fetch printed the cache path.
+    - The `tools` section shows `gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0` and `Cppcheck 2.19.0`, the same releases as the laptop. Lint ended `lint: clean`.
+    - Lint self-test: 35 passed, 0 failed. Hooks self-test: 218 cases, 0 failed (the "run from `buildroot/`" index case is skipped where there's no Buildroot checkout). The index check passed.
+  - **Step 5.**
+    - `grep` finds WSL and aarch64 only in the laptop rows and rules of `CLAUDE.md` and `README.md`.
+    - The README workstation commands work on the laptop: `core.hooksPath` is `.githooks`; the six packages are installed (checked with `dpkg -s`); fetch, lint and both self-tests pass; `gh` is logged in. Not re-run: the clone itself and `apt install`.
+  - **Not run:** any build or boot. Per D40 they happen on the cluster ("Done by Zach").
+- **Image size:** not affected; nothing in the image changed.
+- **Choices made within delegated scope:**
+  - **Fetch:** `curl -fsSL --retry 3` from the stable tree's `plain/` endpoint. Files download into a temporary directory beside the cache and are renamed into place, so a set is never half there. It also checks that `checkpatch.pl` starts with `#!`, so an HTML error or bot-check page isn't accepted as the script.
+  - **KVM test in `run.sh`:** a `kvm_usable` function (`uname -m` is x86_64, and `/dev/kvm` is readable and writable), run straight after argument validation, before the QEMU check and the build.
+  - **`guard-build.py`:** matches the launcher by its basename, `run.sh`, a little broader than "a path ending in `scripts/run.sh`", so `./run.sh` from inside `scripts/` is caught too. It's the only `run.sh` in the repo.
+  - **`guard-git.py`:**
+    - It copies the other guards' command splitting, as they already copy each other's.
+    - It reads the branch lazily with `git symbolic-ref` in `$CLAUDE_PROJECT_DIR` (D37).
+    - It also denies `gh secret remove` and `gh variable remove`, aliases of `delete`.
+    - It reads `-o` in a short-option cluster as taking the rest of the word, so `-oci.skip` isn't read as `-d`.
+  - **`lint.sh`:** the `-fanalyzer` check now applies to any compiler, `LINT_CC` included, so a compiler without the analyzer always fails closed.
+  - **Self-test cases:**
+    - The D40 cases come after Part 2's existing cases, through a small `arm()` helper.
+    - The lint path cases come after Part 1's.
+    - The git guard is a new Part 4, with `gitg()` and `onmain()` helpers.
+  - **Workflow:**
+    - One job, id `checks`, named **`lint and self-tests`**: the check to require on `main`.
+    - Step names as in the file, a 15-minute timeout, and apt packages `git gcc libc6-dev cppcheck perl python3 curl ca-certificates`.
+    - It adds the workspace as a git safe directory, because the container runs as root over a checkout owned by the runner's user.
+  - **`actions/checkout@v7`:** the newest major (v7.0.1, July 2026) per the GitHub releases API.
+  - **Branch and commits:** branch `claude/portable-build-hosts-ci`, one commit per step.
+- **Records written:**
+  - **Decisions:** D38–D45, `accepted`, with `decided_in` this plan. D38 has `supersedes: [D12]`, and D12 is `superseded` with `superseded_by: D38`.
+  - **Open question:** "Lint tool versions across machines" (D42: drift between the laptop, the CI container and build hosts).
+  - **OKRs:** a progress note under KR1.3 in `docs/okrs.md`; no key result ticked.
+  - **Docs:** README and CLAUDE.md, as above.
+  - **Index:** `context/INDEX.md` regenerated.
+- **Suggested `docs/design.md` changes** (Test environment, for D38 superseding D12):
+  - Replace "**Test ladder (D12).**" with "**Test ladder (D38).**", and its first item with: "Local wiping: WipeOS launched directly on the node, with no host-OS handoff. This starts in QEMU on GitHub-hosted runners and the cluster."
+  - In the tiered test plan, replace T0's "Where" cell with "x86_64 VM in QEMU, on a GitHub-hosted runner or a cluster CPU-only server, with KVM where available" and its "Needs from the cluster" cell with "Nothing for CI, or a CPU-only server".
+  - In "Codebase design", after the sentence on `scripts/run.sh`, add: "CI (`.github/workflows/ci.yml`) runs lint, the self-tests and the index check on every pull request to `main` (D43), and changes reach `main` only through pull requests Zach merges (D44)."
+- **Noticed, not touched:**
+  - D35's KVM rule matches `--accel kvm` as words on any command, not only QEMU, so `scripts/run.sh --accel kvm` is denied on a host without `/dev/kvm`. That's harmless (D40 denies `run.sh` there anyway, and `run.sh` would exit 2), but it explains the untested step 2 case.
+  - `context/questions/test-ladder.md` still says `resolved_by: [D12]`, which is now superseded; D38 restates the ladder.
+  - `docs/design.md`'s header still points to `docs/decisions.md`, and so does KR2.3's progress note in `docs/okrs.md`. The decisions now live in `context/decisions/`.
+  - `demo/fill/fill-demo.c` is tracked C outside `src/`, so lint (`C_DIRS=(src)`) and CI don't check it.
+  - For plan 2: GitHub-hosted runners have `/dev/kvm`, but the runner user can't open it without a udev rule, so `--accel auto` will choose TCG there until the workflow grants access.
+  - The `Write(/.github/workflows/**)` entry in the `ask` list is redundant: an `Edit(...)` rule covers every tool that edits files. It's harmless.
+- **Done by Zach:**
+  - [ ] Register `guard-git.py` in `.claude/settings.json` (the JSON in "Done by Zach" above), on this branch, then rerun `scripts/hooks-selftest.sh`.
+  - [ ] Add the ruleset on `main`: require the check **`lint and self-tests`**, 0 approvals, block force pushes, restrict deletions, empty bypass list. CI has already run once on pull request #1, so the check can be selected.
+  - [ ] Boot on the cluster: `scripts/run.sh` (`accel=kvm`, exit 0); `scripts/run.sh --no-build --accel tcg` (`accel=tcg`, exit 0); `scripts/run.sh --no-build --test-fail` (exit 1); `scripts/run.sh --no-build --mem 4` (exit 0, 1 GB pages reserved).
+  - [ ] Review and merge pull request #1.
