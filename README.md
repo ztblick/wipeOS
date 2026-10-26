@@ -16,13 +16,13 @@ A minimal Linux image for verifiable memory wipes. On each host in a pod, WipeOS
 
 ## Running wipeOS
 
-Current as of Oct 20, 2026. These steps are specific to my laptop (Windows on Arm with WSL2) and will become general as wipeOS turns into a product. Update this section whenever the configuration changes.
+Current as of Oct 26, 2026. Update this section whenever the configuration changes.
 
-**Launch the current image.**
+**Where things run (D38).** Builds and boots run on x86_64 Linux build hosts: the cluster, or any x86_64 Linux machine. My laptop (Windows on Arm, WSL2) is a workstation for editing, Claude Code, lint, git and SSH, and doesn't build or boot (D40). CI runs lint, the self-tests and the index check on every pull request to `main` and every push to `main` (D43).
 
-1. Open the Ubuntu (WSL2) terminal from the Windows Start menu, or run `wsl` in PowerShell.
-2. Go to the repo: `cd ~/wipeOS`
-3. Run `scripts/run.sh`. It rebuilds the stub and the image (about 25 s), boots WipeOS in QEMU, and exits with the result.
+### On a build host
+
+**Launch the current image.** From the repo, run `scripts/run.sh`. It rebuilds the stub and the image, boots WipeOS in QEMU, and exits with the result.
 
 | Command | What it does |
 | --- | --- |
@@ -32,21 +32,24 @@ Current as of Oct 20, 2026. These steps are specific to my laptop (Windows on Ar
 | `scripts/run.sh --mode dev` | After the report, a shell on the console; `exit` powers the VM off |
 | `scripts/run.sh --test-fail` | Negative test: a failing check, exit 1 |
 | `scripts/run.sh --no-build` | Boot the existing image without rebuilding |
+| `scripts/run.sh --accel tcg` | Software emulation even where KVM is available |
 
 `scripts/run.sh --help` lists every option. In dev mode, **Ctrl-A** then **X** quits QEMU directly, which counts as an unclean end (exit 2).
 
-**Exit codes (D30).** 0: the stub reported `RESULT=SUCCESS` and the VM powered off cleanly. 1: `RESULT=FAIL`, then a clean power-off. 2: anything else (build failure, kernel panic, timeout, no RESULT line, or no clean power-off). 3: bad arguments.
+**Accelerator (D39).** KVM runs the guest directly on the host's CPU; TCG, QEMU's software emulation, translates every guest instruction and is far slower. With `--accel auto` (the default), `run.sh` uses KVM when the host is x86_64 and `/dev/kvm` is readable and writable by you, and TCG otherwise. `--accel kvm` exits 2 before building if KVM isn't usable, and `--accel tcg` always emulates.
 
-**Logs.** Each run writes `logs/run-<date>-<time>.log` (gitignored), and the build output goes to the matching `-build.log`. A boot log starts with `RUN` lines (QEMU version, git commit, options and the exact QEMU command, D23), followed by the serial console: kernel messages and the stub's report.
+**Exit codes (D30).** 0: the stub reported `RESULT=SUCCESS` and the VM powered off cleanly. 1: `RESULT=FAIL`, then a clean power-off. 2: anything else (build failure, kernel panic, timeout, no RESULT line, no clean power-off, or `--accel kvm` without KVM). 3: bad arguments.
+
+**Logs.** Each run writes `logs/run-<date>-<time>.log` (gitignored), and the build output goes to the matching `-build.log`. A boot log starts with `RUN` lines (QEMU version, git commit, options including `accel=`, and the exact QEMU command, D23), followed by the serial console: kernel messages and the stub's report.
 
 **The report (D29).** The stub, `/sbin/wipeos-init`, runs as process 1 (D25) and prints only `WIPEOS key=value` lines: `BEGIN` with the git commit, the mode, memory (`mem.*`), the RAM ranges and the kernel's own sections (`iomem.*`, including `iomem.kernel_total_bytes`), the unpacked initramfs (`initramfs.shmem_kb`), huge pages (`hugetlb.*`), address randomization (`aslr.*`), PCI devices (`pci.*`), one `check.*` line per check, and finally `RESULT`.
 
 **Huge pages.** With `--pages auto` (the default), up to 2 GiB uses 4 KB pages. From 3 GiB, `run.sh` reserves N−2 pages of 1 GB at boot and adds `-cpu max`, because QEMU's default CPU model doesn't advertise 1 GB page support. The first gigabyte is always broken up (BIOS areas, the legacy hole, the kernel) and the top of guest RAM has a reserved region, so N−2 is the safe count. Huge pages become the default once the fill code lands (D22); the 4 KB runs stay as a comparison.
 
-**Booting by hand.** From `~/wipeOS/buildroot`, this is what `run.sh` runs for a 1 GiB prod boot:
+**Booting by hand.** From `~/wipeOS/buildroot`, this is what `run.sh` runs for a 1 GiB prod boot on a host with KVM (use `-accel tcg` without it):
 
 ```bash
-qemu-system-x86_64 -m 1G -vga none -nographic -no-reboot -kernel output/images/bzImage -append "console=ttyS0 panic=-1 wipeos.mode=prod"
+qemu-system-x86_64 -accel kvm -m 1G -vga none -nographic -no-reboot -kernel output/images/bzImage -append "console=ttyS0 panic=-1 wipeos.mode=prod"
 ```
 
 Adding `rdinit=/bin/sh` to `-append` bypasses the stub and gives a rescue shell, with nothing mounted.
@@ -55,7 +58,7 @@ Adding `rdinit=/bin/sh` to `-append` bypasses the stub and gives a rescue shell,
 
 - After changing the stub in `src/stub/`: `scripts/run.sh` rebuilds it, or run `make wipeos-stub-rebuild && make`.
 - After changing the kernel config with `make linux-menuconfig`: `make linux-rebuild && make`
-- After changing Buildroot settings with `make menuconfig`: `make`. Removing a package or changing the init system needs a full rebuild, `make clean all` (about 40 min; keep the laptop from sleeping, or the build pauses).
+- After changing Buildroot settings with `make menuconfig`: `make`. Removing a package or changing the init system needs a full rebuild, `make clean all` (about 40 min).
 - Save both configs afterwards. Buildroot remembers where our defconfig lives (D31):
 
 ```bash
@@ -63,13 +66,44 @@ make linux-update-defconfig
 make savedefconfig
 ```
 
-**Useful checks.** From `~/wipeOS`, `scripts/hooks-selftest.sh` feeds each Claude Code hook in `.claude/hooks/` the input Claude Code would send, for a fixed table of cases, and exits 0 only if every one gives the expected result: block, ask or pass (D37). Add `-v` to list every case.
+### Checks that run anywhere
 
-**Set up on a new machine.** This repo holds our configs, the stub and the launcher; Buildroot is not committed (it is in `.gitignore`), so each developer clones it and builds the image locally. The repo is a Buildroot external tree named `WIPEOS` (D31). Buildroot needs a Linux host with its standard host packages (see the "System requirements" chapter of the Buildroot manual), and `run.sh` needs the distribution's `qemu-system-x86_64` (D23). Keep the repo off Windows filesystems and out of paths with spaces.
+These run on the laptop, on a build host and in CI:
+
+- `scripts/lint.sh` lints all C under `src/` with checkpatch, gcc's warnings and analyzer, and cppcheck (D33). It always compiles for x86_64 (D42) and prints its tool versions first. `scripts/lint-selftest.sh` checks that each lint check catches a planted defect, and that the pre-commit hook allows or refuses commits as it should.
+- `scripts/hooks-selftest.sh` feeds each Claude Code hook in `.claude/hooks/` the input Claude Code would send, for a fixed table of cases, and exits 0 only if every one gives the expected result: block, ask or pass (D37). Add `-v` to list every case.
+- `scripts/context_index.py --check` exits 1 if `context/INDEX.md` is out of date.
+
+### How changes reach main (D44)
+
+Work happens on a branch, `claude/<topic>` for agents, which is pushed and opened as a pull request to `main` (`gh pr create`). CI must pass, and only I merge. A ruleset on `main` requires a pull request and the CI check and blocks force pushes; `.claude/hooks/guard-git.py` stops agents from pushing to `main`, merging or approving.
+
+### Set up on a new machine
+
+The repo is a Buildroot external tree named `WIPEOS` (D31). Buildroot itself is not committed (it is in `.gitignore`); each build host clones it. Keep the repo off Windows filesystems and out of paths with spaces.
+
+**Workstation (laptop).** Ubuntu 26.04 under WSL2, so the lint tools are the same releases as CI's (D42). Lint needs the x86_64 cross compiler, cppcheck, perl and curl:
 
 ```bash
 git clone git@github.com:ztblick/wipeOS.git ~/wipeOS
 cd ~/wipeOS
+git config core.hooksPath .githooks
+sudo apt install gcc-x86-64-linux-gnu libc6-dev-amd64-cross cppcheck perl python3 curl
+scripts/fetch-checkpatch.sh
+scripts/lint.sh && scripts/lint-selftest.sh && scripts/hooks-selftest.sh
+gh auth login
+```
+
+`git config core.hooksPath .githooks` turns on the pre-commit lint, which git never enables from a clone by itself. `scripts/fetch-checkpatch.sh` downloads the kernel's `checkpatch.pl` for our pinned kernel version into `.cache/` (D41); run it again after the kernel version changes.
+
+**WSL notes.** Windows paths are kept out of the Linux PATH (`appendWindowsPath = false` in `/etc/wsl.conf`), because Buildroot fails on paths with spaces. VS Code still opens with `code .` through an alias in `~/.bashrc`.
+
+**Build host (cluster or any x86_64 Linux).** Buildroot needs its standard host packages (see the "System requirements" chapter of the Buildroot manual), and `run.sh` needs the distribution's `qemu-system-x86_64` (D23). For KVM, your user needs read-write access to `/dev/kvm`, usually through the `kvm` group.
+
+```bash
+git clone git@github.com:ztblick/wipeOS.git ~/wipeOS
+cd ~/wipeOS
+git config core.hooksPath .githooks
 git clone --branch 2026.02.3 https://gitlab.com/buildroot.org/buildroot.git buildroot
 cd buildroot
 make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig
@@ -77,20 +111,23 @@ make
 cd .. && scripts/run.sh --no-build
 ```
 
-The first `make` builds the toolchain, kernel, stub and initramfs and takes about 40 minutes; the image lands in `buildroot/output/images/bzImage`. Config files refer to the repo as `$(BR2_EXTERNAL_WIPEOS_PATH)`, so it can live anywhere.
+The first `make` builds the toolchain, kernel, stub and initramfs and takes about 40 minutes; the image lands in `buildroot/output/images/bzImage`. Config files refer to the repo as `$(BR2_EXTERNAL_WIPEOS_PATH)`, so it can live anywhere. To lint on a build host, also run `scripts/fetch-checkpatch.sh`; lint uses the host's own gcc and cppcheck there.
 
-**Where things live.**
+### Where things live
 
 | Path | What it is |
 | --- | --- |
 | `~/wipeOS/scripts/run.sh` | The launcher: build, boot, log, result |
+| `~/wipeOS/scripts/lint.sh`, `lint-selftest.sh` | Lint for C, and its self-test (D33) |
+| `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches `checkpatch.pl` for lint into `.cache/` (D41) |
+| `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the Claude Code hooks (D37) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43) |
 | `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
 | `~/wipeOS/configs/linux.config` | Pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Buildroot settings |
 | `~/wipeOS/logs/` | Boot and build logs from `run.sh` (gitignored) |
-| `~/wipeOS/buildroot` | Buildroot checkout; run every `make` from here |
+| `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
+| `~/wipeOS/buildroot` | Buildroot checkout, on build hosts; run every `make` from here |
 | `~/wipeOS/buildroot/output/images/bzImage` | The built image: kernel with initramfs inside |
-
-**WSL setup notes.** Windows paths are kept out of the Linux PATH (`appendWindowsPath = false` in `/etc/wsl.conf`), because Buildroot fails on paths with spaces. VS Code still opens with `code .` through an alias in `~/.bashrc`.
