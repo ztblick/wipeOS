@@ -58,6 +58,7 @@ static void ensure_console(void)
 		return;
 
 	int fd = open("/dev/console", O_RDWR | O_NOCTTY);
+
 	if (fd < 0)
 		return;
 	for (int i = 0; i <= STDERR_FILENO; i++)
@@ -72,6 +73,7 @@ static void ensure_console(void)
 static char *param(char *tok, const char *name_eq)
 {
 	size_t n = strlen(name_eq);
+
 	return strncmp(tok, name_eq, n) == 0 ? tok + n : NULL;
 }
 
@@ -93,13 +95,16 @@ static void parse_cmdline(struct options *o)
 	chomp(cmdline);
 
 	char *save;
+
 	for (char *tok = strtok_r(cmdline, " \t", &save); tok != NULL;
 	     tok = strtok_r(NULL, " \t", &save)) {
-		char *v;
-		if ((v = param(tok, "wipeos.mode=")) != NULL)
-			mode = v;
-		else if ((v = param(tok, "wipeos.test_fail=")) != NULL)
-			o->test_fail = strcmp(v, "1") == 0;
+		char *mode_arg = param(tok, "wipeos.mode=");
+		const char *fail_arg = param(tok, "wipeos.test_fail=");
+
+		if (mode_arg != NULL)
+			mode = mode_arg;
+		else if (fail_arg != NULL)
+			o->test_fail = strcmp(fail_arg, "1") == 0;
 	}
 
 	if (mode == NULL || strcmp(mode, "prod") == 0)
@@ -126,6 +131,7 @@ static _Noreturn void power_off(void)
 static _Noreturn void run_shell(void)
 {
 	pid_t shell = fork();
+
 	if (shell < 0) {
 		report("shell.fork=fail errno=%d", errno);
 		power_off();
@@ -138,6 +144,7 @@ static _Noreturn void run_shell(void)
 		// kernel left it attached to process 1.
 		setsid();
 		int fd = open("/dev/console", O_RDWR);
+
 		if (fd >= 0) {
 			ioctl(fd, TIOCSCTTY, 1);
 			for (int i = 0; i <= STDERR_FILENO; i++)
@@ -147,6 +154,7 @@ static _Noreturn void run_shell(void)
 				close(fd);
 		}
 		char *const argv[] = { "sh", NULL };
+
 		execv("/bin/sh", argv);
 		report("shell.exec=fail errno=%d", errno);
 		_exit(127);
@@ -156,6 +164,7 @@ static _Noreturn void run_shell(void)
 	// Power off once the shell itself has exited, or if wait() fails.
 	for (;;) {
 		pid_t done = wait(NULL);
+
 		if (done == shell || done < 0)
 			power_off();
 	}
@@ -184,6 +193,7 @@ int main(void)
 	ensure_console();
 
 	struct options o;
+
 	parse_cmdline(&o);
 
 	// BEGIN must be the first line, so mount failures are reported
@@ -199,6 +209,7 @@ int main(void)
 			report("mount.%s=fail errno=%d", fs[i].type, err[i]);
 
 	struct facts f;
+
 	collect_report(&f);
 
 	// Fail closed: every check is printed, and the first one that
@@ -214,17 +225,20 @@ int main(void)
 	checks[n++] = (struct check){ "mode", o.bad_mode == NULL, "mode" };
 	checks[n++] = (struct check){ "mounts", mounted, "mounts" };
 	checks[n++] = (struct check){ "aslr_off", f.aslr == 0, "aslr_off" };
-	checks[n++] = (struct check){ "report", f.report_ok && report_lines_ok(),
+	checks[n++] = (struct check){ "report",
+				      f.report_ok && report_lines_ok(),
 				      "report" };
 	if (o.test_fail)
 		checks[n++] = (struct check){ "test_fail", false, "test_fail" };
 	bool shell_ok = false;
+
 	if (o.dev) {
 		shell_ok = access("/bin/sh", X_OK) == 0;
 		checks[n++] = (struct check){ "shell", shell_ok, "no_shell" };
 	}
 
 	const char *failed = NULL;
+
 	for (size_t i = 0; i < n; i++) {
 		report("check.%s=%s", checks[i].name,
 		       checks[i].pass ? "pass" : "fail");

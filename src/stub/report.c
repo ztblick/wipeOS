@@ -53,6 +53,7 @@ static void report_basics(struct facts *f)
 	// /proc/uptime is "seconds.hundredths idle-time".
 	if (need_file(f, "/proc/uptime", buf, sizeof(buf))) {
 		unsigned long s, cs;
+
 		if (sscanf(buf, "%lu.%2lu", &s, &cs) == 2)
 			report("boot.uptime_ms=%lu", s * 1000 + cs * 10);
 		else
@@ -60,6 +61,7 @@ static void report_basics(struct facts *f)
 	}
 
 	long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+
 	if (cpus > 0)
 		report("cpu.count=%ld", cpus);
 	else
@@ -87,12 +89,13 @@ static void report_iomem(struct facts *f)
 	static char iomem[32768];
 	bool found[NKERNEL] = { false };
 	unsigned long long total = 0;
-	unsigned ram = 0;
+	unsigned int ram = 0;
 
 	if (!need_file(f, "/proc/iomem", iomem, sizeof(iomem)))
 		return;
 
 	char *save;
+
 	for (char *line = strtok_r(iomem, "\n", &save); line != NULL;
 	     line = strtok_r(NULL, "\n", &save)) {
 		unsigned long long start, end;
@@ -100,8 +103,8 @@ static void report_iomem(struct facts *f)
 
 		// Lines are "start-end : name". Anything else is skipped;
 		// the ranges we need are checked for below.
-		if (sscanf(line, " %llx-%llx : %n", &start, &end, &name_at) != 2 ||
-		    name_at < 0)
+		if (sscanf(line, " %llx-%llx : %n", &start, &end,
+			   &name_at) != 2 || name_at < 0)
 			continue;
 		const char *name = line + name_at;
 
@@ -122,6 +125,7 @@ static void report_iomem(struct facts *f)
 	if (ram == 0)
 		missing(f, "iomem.ram");
 	bool all = true;
+
 	for (size_t i = 0; i < NKERNEL; i++) {
 		if (!found[i]) {
 			missing(f, kernel[i].key);
@@ -158,8 +162,10 @@ static void report_aslr(struct facts *f)
 		       sizeof(buf)))
 		return;
 	char *end;
+
 	errno = 0;
 	long v = strtol(buf, &end, 10);
+
 	if (errno != 0 || end == buf || *end != '\0') {
 		missing(f, "aslr.randomize_va_space");
 		return;
@@ -180,6 +186,7 @@ static void report_pci(struct facts *f)
 	size_t n = 0;
 
 	DIR *d = opendir(dir);
+
 	if (d == NULL) {
 		report("read_fail=\"%s\" errno=%d", dir, errno);
 		f->report_ok = false;
@@ -188,6 +195,7 @@ static void report_pci(struct facts *f)
 	for (;;) {
 		errno = 0;
 		const struct dirent *e = readdir(d);
+
 		if (e == NULL) {
 			if (errno != 0) {
 				report("read_fail=\"%s\" errno=%d", dir, errno);
@@ -197,14 +205,16 @@ static void report_pci(struct facts *f)
 		}
 		if (e->d_name[0] == '.')
 			continue;
+		size_t len = strlen(e->d_name);
+
 		// Fail closed rather than report a partial device list.
-		if (n == PCI_MAX || strlen(e->d_name) >= sizeof(slots[0])) {
+		if (n == PCI_MAX || len >= sizeof(slots[0])) {
 			report("pci.count=too_many max=%d", PCI_MAX);
 			f->report_ok = false;
 			closedir(d);
 			return;
 		}
-		strcpy(slots[n++], e->d_name);
+		memcpy(slots[n++], e->d_name, len + 1); // with its NUL
 	}
 	closedir(d);
 
@@ -214,7 +224,8 @@ static void report_pci(struct facts *f)
 
 	report("pci.count=%zu", n);
 	for (size_t i = 0; i < n; i++) {
-		static const char *const attr[] = { "vendor", "device", "class" };
+		static const char *const attr[] = { "vendor", "device",
+						    "class" };
 		char val[3][32];
 		bool ok = true;
 
@@ -258,9 +269,12 @@ void collect_report(struct facts *f)
 		// The initramfs is unpacked into a RAM-backed rootfs, which
 		// the kernel counts as shared memory.
 		report_meminfo(f, meminfo, "Shmem", "initramfs.shmem_kb");
-		report_meminfo(f, meminfo, "Hugepagesize", "hugetlb.page_size_kb");
-		report_meminfo(f, meminfo, "HugePages_Total", "hugetlb.pages_total");
-		report_meminfo(f, meminfo, "HugePages_Free", "hugetlb.pages_free");
+		report_meminfo(f, meminfo, "Hugepagesize",
+			       "hugetlb.page_size_kb");
+		report_meminfo(f, meminfo, "HugePages_Total",
+			       "hugetlb.pages_total");
+		report_meminfo(f, meminfo, "HugePages_Free",
+			       "hugetlb.pages_free");
 	}
 	report_vmemmap(f);
 

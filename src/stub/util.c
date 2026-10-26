@@ -24,11 +24,12 @@ void report(const char *fmt, ...)
 	char line[4096];
 	size_t len = sizeof(prefix) - 1;
 	size_t room = sizeof(line) - len - 1; // keep one byte for '\n'
+	va_list ap;
+	int n;
 
 	memcpy(line, prefix, len);
-	va_list ap;
 	va_start(ap, fmt);
-	int n = vsnprintf(line + len, room, fmt, ap);
+	n = vsnprintf(line + len, room, fmt, ap);
 	va_end(ap);
 	if (n < 0 || (size_t)n >= room) {
 		lines_ok = false;
@@ -53,6 +54,7 @@ bool report_lines_ok(void)
 ssize_t read_file(const char *path, char *buf, size_t size)
 {
 	int fd = open(path, O_RDONLY | O_CLOEXEC);
+
 	if (fd < 0)
 		return -1;
 
@@ -60,8 +62,10 @@ ssize_t read_file(const char *path, char *buf, size_t size)
 	// until end of file.
 	size_t len = 0;
 	int err = 0;
+
 	for (;;) {
 		ssize_t r = read(fd, buf + len, size - 1 - len);
+
 		if (r < 0) {
 			err = errno;
 			break;
@@ -72,6 +76,7 @@ ssize_t read_file(const char *path, char *buf, size_t size)
 		if (len == size - 1) {
 			// Buffer full: only fine if the file ends exactly here.
 			char extra;
+
 			r = read(fd, &extra, 1);
 			if (r != 0)
 				err = r > 0 ? EFBIG : errno;
@@ -91,6 +96,7 @@ ssize_t read_file(const char *path, char *buf, size_t size)
 void chomp(char *s)
 {
 	size_t len = strlen(s);
+
 	while (len > 0 && s[len - 1] == '\n')
 		s[--len] = '\0';
 }
@@ -116,6 +122,7 @@ bool meminfo_value(const char *meminfo, const char *field,
 		if (strncmp(line, field, flen) == 0 && line[flen] == ':') {
 			const char *num = line + flen + 1;
 			char *end;
+
 			errno = 0;
 			*value = strtoull(num, &end, 10);
 			return errno == 0 && end != num;
