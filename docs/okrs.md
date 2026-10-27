@@ -16,6 +16,7 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
   - **Progress.** `scripts/run.sh` covers launching with configurable guest RAM and page size, and capturing the boot log. Wipe logs and the D17 boundary for architecture-specific code are not designed yet; the stub has no architecture-specific code so far.
   - **Progress (Oct 26).** `run.sh` chooses the QEMU accelerator, KVM where the host has it (D39), and fast CI runs lint, both self-tests and the index check on every pull request (D43). Builds and boots move to x86_64 hosts (D38). See `docs/plans/portable-build-host-and-fast-CI.md`.
   - **Progress (Oct 27).** The image is built and boot-tested in CI on every build-relevant change: four boots, under KVM and TCG, with logs, the `bzImage` and its size kept on every run (D46–D49). See `docs/plans/build-and-boot-ci.md`.
+  - **Progress (Oct 27).** An agent pipeline plans, builds, reviews and fixes changes in GitHub under Zach's merges and reviews, behind a sender gate (D50 to D55). See `docs/plans/agents-in-github.md`.
 - [x] **KR1.4** One command launches the image in QEMU and collects its boot log.
   - **Done.** `scripts/run.sh` builds, boots, writes `logs/run-<date>-<time>.log` and exits 0/1/2/3 by the result (D30); acceptance tests 1–8 of `docs/plans/stub-plan.md` pass.
 
