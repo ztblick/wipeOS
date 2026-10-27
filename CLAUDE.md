@@ -87,7 +87,7 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the hooks in `.claude/hooks/` (D37) |
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches the kernel's `checkpatch.pl` for lint into `.cache/` (D41) |
-| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds: from the changed paths, and a fingerprint of the build inputs that skips inputs already passed (D56) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds, only boots a passed image again, or skips: from the changed paths, and fingerprints of the image and boot-test inputs (D56) |
 | `~/wipeOS/configs/buildroot.version` | The Buildroot release tag that build hosts and CI clone (D47) |
 | `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
 | `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |

@@ -80,10 +80,13 @@ Work happens on a branch, `claude/<topic>` for agents, which is pushed and opene
 
 ### Build and boot in CI (D47–D49, D56)
 
-The **`build and boot`** check builds the image on a GitHub-hosted runner and boots it with `scripts/run.sh` four times: `--accel kvm`, `--accel tcg`, `--test-fail` (expects exit 1) and `--mem 4`. The build takes 35–40 minutes, so the check skips it whenever it can (D56), and passes in seconds with its summary saying why:
+The **`build and boot`** check builds the image on a GitHub-hosted runner and boots it with `scripts/run.sh` four times: `--accel kvm`, `--accel tcg`, `--test-fail` (expects exit 1) and `--mem 4`. The build takes 35–40 minutes, so it runs only when the image itself changes (D56). The check picks one of three modes, and its summary says which and why:
 
-- **Nothing build-relevant changed.** `scripts/ci-changes.sh` checks whether anything that can change the image or the boot changed: `src/`, `package/`, `configs/`, the external-tree files, `run.sh`, the script itself, or `.github/workflows/ci.yml`.
-- **These inputs already passed.** `scripts/ci-changes.sh --fingerprint HEAD` hashes exactly those inputs. After a run passes, it leaves a `build-and-boot-passed-<fingerprint>` artifact for 14 days, and a later run with the same fingerprint skips. Documentation commits on a pull request, and the push to `main` when it merges, reuse the pull request's pass. A manual run (`workflow_dispatch`) always builds.
+- **Skip,** in seconds: nothing that goes into the image (`src/`, `package/`, `configs/`, the external-tree files) or into the boot test (`scripts/run.sh`, `.github/workflows/ci.yml`) changed, or this exact image and boot test already passed.
+- **Boot,** in a few minutes: the image is one an earlier run built and passed, but the boot test changed, or the commit is new. The check downloads that run's `bzImage` and boots it again, without building.
+- **Build:** the image's inputs are new, or this is a manual run (`workflow_dispatch`), which always builds.
+
+`scripts/ci-changes.sh` decides, and `scripts/ci-changes.sh --fingerprint HEAD` prints the two hashes it matches on, one for the image's inputs and one for the boot test. Each passing run leaves a `build-and-boot-passed-<image>-<boot>` artifact and the `bzImage` it booted, for 14 days. So documentation commits on a pull request, and the push to `main` when it merges, reuse the pull request's pass. A change to the build steps in `ci.yml` is only booted, not built, until the image next changes; run the workflow by hand to build it sooner.
 
 The run's summary page shows the build time, the `bzImage` size and the boot table, and the run keeps two artifacts for 14 days: `boot-logs` (the four boot logs and the last 200 lines of the build log) and `bzImage`.
 
@@ -178,7 +181,7 @@ To commit from a build host, also run `git config core.hooksPath .githooks`, ins
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches `checkpatch.pl` for lint into `.cache/` (D41) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the Claude Code hooks (D37) |
 | `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43); build and boot (D47–D49, D56) |
-| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds and boots, and fingerprints the build inputs (D56) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds, only boots, or skips, and fingerprints the image and boot-test inputs (D56) |
 | `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
