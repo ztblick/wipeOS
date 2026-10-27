@@ -203,4 +203,115 @@ Claude Code can't do these. List them in Outcome as a checklist.
 
 ## Outcome
 
-<!-- Claude Code fills this in. -->
+- **Status:** done. The work merged in pull request [#4](https://github.com/ztblick/wipeOS/pull/4) (`92adc61`). Zach merged #4 before this Outcome and a README fix were pushed, so they follow in a second pull request from `claude/build-and-boot-ci-outcome`. No stop condition came up. D46–D49 were free, as planned.
+- **Commits:** `7549ab5` (the plan), `dc3520c` (step 1), `769353b` (step 2), `02b5fae` (step 3), `5c49bd6` (step 4), `4096d2b` (step 5), `b4940a9` (D46–D49), and on the follow-up branch, the README fix and OKR note plus this Outcome.
+- **Changed:**
+  - `configs/buildroot.version` (new): `2026.02.3` (D47).
+  - `scripts/ci-changes.sh` (new): build or skip from the changed paths (D46).
+  - `.claude/hooks/guard-lint.py`: `scripts/ci-changes.sh` is protected from shell writes and stays runnable, directly or with `bash`.
+  - `scripts/hooks-selftest.sh`: five new Part 1 cases (two block, three pass). No existing case changed.
+  - `.github/workflows/ci.yml`: the `build` job, **`build and boot`**; `workflow_dispatch`; header comment rewritten for both jobs.
+  - `README.md`:
+    - The build-host clone reads `configs/buildroot.version`.
+    - New section "Build and boot in CI (D46–D49)" with "Booting an image built by CI".
+    - Rows for the two new files.
+    - "Where things run" mentions the new check.
+    - "How changes reach main" says "the CI checks".
+  - `CLAUDE.md`:
+    - "Verifying changes" as the plan specifies, and layout rows for the two new files.
+    - Beyond the spec, so they don't contradict it: three lines that said boots come "once plan 2 lands" or described CI as lint only (the runner row of the machine table, the `ci.yml` layout row, and "Commands").
+  - `docs/okrs.md`: a progress note under KR1.3.
+  - Records: D46–D49.
+- **Verified:**
+  - **Step 0.** D46–D49 free; README pinned `2026.02.3`; the five commits the acceptance test names touch the files the plan says; no conflict with D3, D20, D23, D30, D34, D38, D39, D43 or D44.
+  - **Step 1.** `scripts/ci-changes.sh`:
+
+    | Arguments | First line | Exit |
+    | --- | --- | --- |
+    | `45bf148^ 45bf148` (README, plan) | `skip` | 0 |
+    | `dece286^ dece286` (lint scripts, `.gitignore`) | `skip` | 0 |
+    | `9ceb372^ 9ceb372` (`scripts/run.sh`) | `build` | 0 |
+    | `536091f^ 536091f` (`src/stub/*.c`) | `build` | 0 |
+    | `ea2daaa^ ea2daaa` (`ci.yml`) | `build` | 0 |
+    | `'' HEAD` (no base) | `build` | 0 |
+    | all-zeros base (new branch) | `build` | 0 |
+    | `deadbeefdeadbeef HEAD` (nonexistent base) | `build` | 2 |
+    | `HEAD` only (bad arguments) | `build` | 2 |
+    | `HEAD HEAD` | `skip`, no paths | 0 |
+
+  - **Step 2.** `scripts/hooks-selftest.sh`: 224 cases, 0 failed.
+  - **Step 3.** CI run [40423302997](https://github.com/ztblick/wipeOS/actions/runs/40423302997), the build job only. The decision was `build` (the workflow changed).
+    - Disk: 86 GB free on `/` at the start, so nothing was removed; 76 GB free after the build.
+    - Cache miss, as expected for a first run, and a new entry was saved under `br-dl-2026.02.3-0594…0904`.
+    - **Cold build: 2273 s (37 min 53 s)**, exit 0. QEMU 8.2.2 (`1:8.2.2+ds-0ubuntu1.18`), the same version as the cluster.
+    - `bzImage` 8,569,856 bytes.
+  - **Step 4.** CI run [40438641765](https://github.com/ztblick/wipeOS/actions/runs/40438641765), the whole job:
+    - Download cache: exact hit. Build: 1333 s. 87 GB free at the start.
+    - After the udev rule, `/dev/kvm` was `crw-rw-rw- root kvm`.
+    - Boots:
+
+      | Case | Accelerator | Exit (expected) | Log | Result |
+      | --- | --- | --- | --- | --- |
+      | `kvm` | kvm | 0 (0) | `RUN … accel=kvm`, `RESULT=SUCCESS`, `Power down` | pass |
+      | `tcg` | tcg | 0 (0) | `RUN … accel=tcg`, `RESULT=SUCCESS` | pass |
+      | `test-fail` | kvm | 1 (1) | `RESULT=FAIL reason=test_fail`, `Power down` | pass |
+      | `mem4` | kvm | 0 (0) | `pages=1g hugepages_requested=2`, `hugetlb.pages_total=1`, `RESULT=SUCCESS` | pass |
+
+    - **The open `accel=kvm` check from `docs/plans/portable-build-host-and-fast-CI.md` is now verified:** `run.sh --accel kvm` boots under KVM on the runner. The `tcg`, `test-fail` and `mem4` results match the cluster's, including `mem4`'s 1 of 2 huge pages, the deferred question "Huge-page count in QEMU above 3 GiB".
+    - `gh run download 40438641765 -n boot-logs` fetched the four boot logs and `build-tail.log`. `-n bzImage` fetched an 8,569,856-byte file that `file` identifies as a Linux 6.18.7 x86 bzImage.
+    - `gh run download` refuses to overwrite an existing file ("file exists"), so the README's download commands now create the directory and `rm -f` the old image first. Run as written, that sequence downloads the image.
+    - Re-run of the job (`gh run rerun --job`, attempt 2): download cache restored from the exact key, **warm build 2185 s (36 min 25 s)**, all four boots pass as above.
+  - **Step 5.** README's build-host commands clone `"$(cat configs/buildroot.version)"`. `grep` finds `2026.02.3` only in `configs/buildroot.version` and this plan.
+  - **Not verified:**
+    - The skip path on a real CI run: every run on #4 built, because the pull request touches the workflow. The skip logic is covered by the step 1 cases.
+    - The disk cleanup branch: the runner had 86–87 GB free, so it never ran.
+    - The `push` to `main` path (`github.event.before`) after the merge: not read yet.
+    - `actionlint` and `shellcheck` aren't installed. Instead, the YAML was parsed with Python, each inline script passed `bash -n`, and the Boot and Summary scripts were run against a fake `run.sh` in the scratchpad, with KVM working and not.
+- **Build time.** Cold 2273 s; warm 1333 s and 2185 s. The cold build is under 60 minutes, so no "Build time in CI" question was added. Warm and cold differ by less than the two warm runs differ from each other. The download cache saves little next to compile time and the variation between runners.
+- **Image size:** not affected; nothing in the image changed. CI's first recorded `bzImage` size is 8,569,856 bytes, the reference for later changes.
+- **Choices made within delegated scope:**
+  - **`ci-changes.sh` interface:** two positional arguments, `BASE HEAD`. An empty or all-zeros base means "no base". Any error prints `build` first, then exits 2.
+  - **`ci-changes.sh` diff:** a three-dot `git diff`, so the diff starts at the merge base. `--no-renames` makes a file moved out of `src/` count as a change to `src/`.
+  - **Workflow inputs to the script:**
+    - Pull requests pass `pull_request.base.sha` and `head.sha`, so the diff is the one GitHub shows, not the merge commit's.
+    - Pushes pass `github.event.before` and `GITHUB_SHA`; manual runs pass no base.
+    - The workflow builds unless the script prints `skip` and exits 0.
+  - **Disk:** free space is measured on `/`. Below 20 GB, the step removes `/usr/share/dotnet`, `/usr/local/lib/android`, `/opt/ghc` and `/usr/local/.ghcup`, and fails if there's still less than 20 GB.
+  - **apt:**
+    - README's list without `libncurses-dev` (only for menuconfig).
+    - Plus `seabios` and `ipxe-qemu` named explicitly: the BIOS and the default NIC's boot ROM. With `--no-install-recommends`, they're listed in case they're only recommends.
+  - **KVM:** `/etc/udev/rules.d/99-kvm4all.rules` with `KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"`, then `udevadm control --reload-rules` and `udevadm trigger --name-match=kvm`. The step doesn't check the result itself; the `kvm` case is the test, with no fallback, as D48 says.
+  - **Job:**
+    - Timeout 150 minutes.
+    - `defaults.run.shell: bash`, so every step runs with `-eo pipefail`.
+    - One Boot step: a `boot()` function per case, with results in `$RUNNER_TEMP/boots.tsv` for the summary.
+    - The boots and the uploads run with `!cancelled()`, so a failed KVM step or one failed case doesn't skip the rest.
+  - **Summary:**
+    - The decide step writes the verdict and the changed paths, with base and head.
+    - The Summary step writes a Build table (outcome and time, `bzImage` bytes, download cache: exact, partial or miss, and free disk at three points) and the Boots table (case, accelerator, exit, expected, result).
+  - **Cache, split into `actions/cache/restore@v6` and `actions/cache/save@v6`:**
+    - The save runs only after a successful build. A save after an early failure would store a near-empty `dl/` under the exact key, which later runs would hit and never replace.
+    - This narrows D47's "saved whenever the exact key missed". Zach, say if you want it the other way.
+  - **Action versions:** `actions/checkout@v7`, `actions/cache@v6` and `actions/upload-artifact@v7`, the latest majors per the GitHub releases API.
+  - **Clone:** CI clones Buildroot with `--depth 1`; the build needs no history.
+  - **Build log tail:** written inside the Build step on success and failure, as `logs/ci/build-tail.log`.
+  - **`workflow_dispatch`:** sits at the workflow level, so a manual run also runs the lint job. Its definition is unchanged.
+  - **Accelerator for the last two cases:** `test-fail` and `mem4` use `run.sh`'s default `--accel auto`, which chose KVM on the runner. The plan's table doesn't set an accelerator for them.
+  - **Branch:** `claude/build-and-boot-ci`, one commit per step.
+- **Records written:**
+  - **Decisions:** D46–D49, `accepted`, with `decided_in` this plan.
+  - **Open questions:** none; the cold build is under 60 minutes.
+  - **OKRs:** a progress note under KR1.3; no key result ticked.
+  - **Index:** `context/INDEX.md` regenerated.
+- **Suggested `docs/design.md` change** ("Codebase design", after the sentence on `scripts/run.sh`): "On every change that can affect the image, CI builds it on a GitHub-hosted runner, boots it four times under KVM and TCG, and reports the `bzImage` size (D46–D49)."
+- **Noticed, not touched:**
+  - The skip compares the pull request's whole diff, so once a pull request touches a build-relevant file, every later push to it rebuilds (22–38 min), docs-only pushes included. That is D46 as written.
+  - Right after both runs ended, `gh run view <id> --log` printed nothing and exited 0. `gh api repos/ztblick/wipeOS/actions/jobs/<job-id>/logs` (a read) returned the log. CLAUDE.md's `gh run view --log-failed` may hit the same gap.
+  - The README's `rm -f buildroot/output/images/bzImage` brings up the build guard's "ask" prompt for an agent on a build host (D35), as CLAUDE.md intends for deleting build output.
+  - Zach's uncommitted change to `.claude/settings.json` (dropping the redundant `Write(/.github/workflows/**)`) is still in the working tree, uncommitted. "Done by Zach" 1 below edits the same file.
+  - `test-fail` and `mem4` boot under KVM on the runner, so CI no longer runs those two cases under TCG.
+- **Done by Zach:**
+  - [ ] Add `"Edit(/scripts/ci-changes.sh)",` to the `ask` list in `.claude/settings.json`, after `Edit(/scripts/fetch-checkpatch.sh)`.
+  - [ ] Add **`build and boot`** as a second required check on `main`'s ruleset. As of this Outcome, `protect-main` requires only **`lint and self-tests`**.
+  - [x] Review and merge the pull request: #4 merged as `92adc61`. The follow-up pull request with this Outcome is still open.
+  - [ ] Optional: on the cluster, boot the `bzImage` artifact from the merged run with `scripts/run.sh --no-build`, using the README's download commands.
