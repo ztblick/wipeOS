@@ -40,7 +40,8 @@ trap 'rm -rf "$tmp"' EXIT
 no_kvm=$tmp/no-kvm
 touch "$tmp/kvm"
 # Likewise the host architecture (D40) and the checked-out branch (D44):
-# an x86_64 host on a feature branch, unless a case says otherwise.
+# an x86_64 host on a feature branch, unless a case says otherwise. And
+# not an agent session in GitHub (D54), even when this runs inside one.
 host_arch=x86_64
 branch=claude/selftest
 
@@ -80,7 +81,7 @@ hook() {
 	shift 4
 	out=$(env CLAUDE_PROJECT_DIR="$repo" GUARD_BUILD_KVM_DEVICE="$no_kvm" \
 		GUARD_BUILD_HOST_ARCH="$host_arch" GUARD_GIT_BRANCH="$branch" \
-		"$@" python3 "$hooks/$h" <<<"$json" 2>"$tmp/err")
+		WIPEOS_AGENT_CI= "$@" python3 "$hooks/$h" <<<"$json" 2>"$tmp/err")
 	rc=$?
 	err=$(cat "$tmp/err")
 	got=$(outcome $rc "$out")
@@ -166,6 +167,18 @@ lint block 'sed -i s/build/skip/ scripts/ci-changes.sh'
 lint pass 'cat scripts/ci-changes.sh'
 lint pass 'scripts/ci-changes.sh HEAD^ HEAD'
 lint pass 'bash scripts/ci-changes.sh HEAD^ HEAD'
+
+# The agent gate, its self-test and the agents' skills (D51, D52).
+lint block 'echo x > scripts/agent-gate.py'
+lint block 'sed -i s/ztblick/x/ scripts/agent-gate.py'
+lint block 'rm scripts/agent-gate-selftest.sh'
+lint block 'echo x >> .claude/skills/build-plan/SKILL.md'
+lint block 'mkdir -p .claude/skills/new-role'
+lint pass 'cat scripts/agent-gate.py'
+lint pass 'grep -n trust .claude/skills/build-plan/SKILL.md'
+lint pass 'scripts/agent-gate.py --open-specs 0'
+lint pass 'scripts/agent-gate-selftest.sh -v'
+lint pass 'bash scripts/agent-gate-selftest.sh'
 
 src=$repo/src/stub/util.c
 supp='// cppcheck-suppress nullPointer ; checked above'
@@ -307,6 +320,23 @@ arm pass 'scripts/run.sh -h'
 arm pass 'scripts/lint.sh'
 arm pass 'scripts/fetch-checkpatch.sh'
 arm pass 'git status'
+
+# Deny the same in an agent session in GitHub (D54), on x86_64.
+agent() { build "$1" "$2" WIPEOS_AGENT_CI=1; }
+agent block 'make'
+agent block 'cd buildroot && make wipeos-stub-rebuild'
+agent block 'make -C src/stub'
+agent block 'scripts/run.sh --no-build'
+agent block 'bash scripts/run.sh --no-build --accel tcg'
+agent block 'qemu-system-x86_64 -m 1G'
+agent block 'timeout 600 qemu-system-x86_64 -m 1G'
+agent pass 'scripts/run.sh --help'
+agent pass 'scripts/lint.sh'
+agent pass 'scripts/lint-selftest.sh'
+agent pass 'scripts/ci-changes.sh origin/main HEAD'
+agent pass 'scripts/agent-gate-selftest.sh'
+agent pass 'gh run download 123 -n boot-logs'
+build pass 'make' WIPEOS_AGENT_CI=0
 
 # ---- Part 3: check-index.py ----
 
