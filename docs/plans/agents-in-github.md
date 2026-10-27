@@ -280,4 +280,157 @@ Claude Code can't do these. List them in Outcome as a checklist.
 
 ## Outcome
 
-<!-- Claude Code fills this in. -->
+- **Status:** done, on branch `claude/agents-in-github` in pull request [#6](https://github.com/ztblick/wipeOS/pull/6). Both required checks pass. "Done by Zach" 1–4 are done. The end-to-end loop can only run after this merges; that is Zach's walkthrough, item 5. No stop condition came up. D50–D55 were free, as planned.
+- **Commits:** `8f2e9fb` (step 1), `5bd9424` (step 2), `d90a21a` (step 3), `1e3171a` (step 4), `48ef1d4` (step 5), `1e43eb9` (step 6), Zach's `54975b1` ("Done by Zach" 3), `96c6e76` (Outcome: CI results and setup), and a last commit at Zach's request: the final Outcome update in `build-plan`, and a wording fix here.
+- **Changed:**
+  - `scripts/agent-gate.py` (new): the sender gate (D51), with the loop cap's `fix-cap` role (D53).
+  - `scripts/agent-gate-selftest.sh` (new): 70 cases.
+  - `.claude/hooks/guard-build.py`: with `WIPEOS_AGENT_CI=1`, denies what D40 denies on a non-x86_64 host, with a reason pointing to the **`build and boot`** check (D54).
+  - `.claude/hooks/guard-lint.py`: protects `scripts/agent-gate.py` and `scripts/agent-gate-selftest.sh` and lets both be run. `.claude/skills/` was already covered by the existing `.claude/` rule; the docstring now says so.
+  - `scripts/hooks-selftest.sh`:
+    - 21 new cases: 10 in Part 1, 11 in Part 2 with a new `agent()` helper.
+    - In the harness, `WIPEOS_AGENT_CI` is now cleared for every case, so the existing cases still pass when the self-test runs inside an agent session. No existing case changed.
+  - `.claude/skills/{plan-next,revise-spec,build-plan,fix-pr,review-pr,respec}/SKILL.md` (new): one per role (D52).
+    - At Zach's request after CI passed, `build-plan` also carries his convention that the commit finishing Outcome is the pull request's last, made only after CI passes.
+    - The builder now leaves the CI results pending and asks Zach to comment `@claude run the final Outcome update from the build-plan skill` once both checks pass. A "Final Outcome update" section says what that run checks, records and commits.
+    - Nothing starts an agent when CI passes, and the builder's 60 minutes don't cover a 35–40 minute build, so Zach's comment, through the existing `mention` role, is the trigger. Neither the gate nor the workflow changed.
+  - `.github/workflows/agents.yml` (new): the gate, the labels job, and one job per role (D50, D51, D53, D54).
+  - `.github/workflows/ci.yml`: the gate self-test in **`lint and self-tests`**, and the header comment.
+  - `CLAUDE.md`: a new "Agents in GitHub" section; layout rows for the skills, `agents.yml` and the gate; the hooks row cites D54; the gate self-test listed under "Verifying changes".
+  - `README.md`: a new "Agents in GitHub (D50–D55)" section with setup and the first cycle; the gate self-test under "Checks that run anywhere"; layout rows.
+  - Records: D50–D55, a new open question, an addition to "Lint tool versions across machines", and a KR1.3 progress note.
+- **Verified:**
+  - **Step 0, preflight.** Everything below was read at `anthropics/claude-code-action` `925afb53776cf1a2b738c6bdbed37b4d4000ef13` (v1.0.262), in its docs and source:
+    - **Precondition.** Both checks passed on `main` (run 40455695959: cold build 2301 s, all four boots matched), and the `protect-main` ruleset requires both.
+    - **Subscription auth:** the `claude_code_oauth_token` input.
+    - **Inputs:** `prompt`, `claude_args` (with `--allowedTools` and `--max-turns`), `allowed_bots` (normalizes `claude[bot]` to `claude`), `additional_permissions`, `track_progress`.
+    - **Project settings and hooks load:** `base-action/src/parse-sdk-options.ts` defaults `settingSources` to `["user","project","local"]`. On PR events the action restores `.claude/` and `CLAUDE.md` from the base branch.
+    - **Claude's shell gets the app token:** `src/entrypoints/run.ts` exports `GH_TOKEN`. Agent mode passes our prompt straight through, with no system prompt against creating PRs or reviews.
+    - **Events from the app's token trigger workflows:** GitHub's docs ("Triggering a workflow from a workflow") say only `GITHUB_TOKEN` events don't.
+    - **Payload fields:** every field the gate reads exists in GitHub's webhook schema (`github/rest-api-description`), checked per event.
+    - **Queueing:** GitHub's concurrency docs describe `queue: max` (up to 100 pending), which D53's "runs queue" needs.
+    - **Other checks:** D50–D55 free; `guard-git.py` already allows every command the agents need; no conflict with D34, D38, D40, D44 or D46–D49.
+  - **Step 1.** `scripts/agent-gate-selftest.sh` passes 70 cases, 0 failed.
+    - Coverage: every row of the role table and every case the component spec lists, plus Zach's uncapped fix, an uppercase review state, a verdict not on the first line, forks for each event type, a missing count or PR, malformed and empty payloads, and a newline in a payload, which can't add a line to `$GITHUB_OUTPUT`.
+    - An earlier draft ran piped cases in a subshell and lost their failures. With `shopt -s lastpipe`, two planted wrong expectations fail the run (2 failed, exit 1).
+  - **Step 2.** `scripts/hooks-selftest.sh`: 248 cases, 0 failed, also with `WIPEOS_AGENT_CI=1` in its environment. `scripts/lint-selftest.sh`: 35 passed, 0 failed. Run directly with `WIPEOS_AGENT_CI=1` on x86_64, `guard-build.py` denies `make linux-rebuild` with the D54 reason.
+  - **Step 3.** Each skill's first paragraph is the trust rule, word for word. Points against the component spec:
+    - **`plan-next`:**
+      - reads design, OKRs, the index and earlier Outcomes;
+      - picks the first unticked key result, sized by CLAUDE.md's rules;
+      - writes from `TEMPLATE.md`, with decisions as proposals with alternatives;
+      - puts open questions in the description;
+      - uses branch `claude/plan-<topic>` and the `spec` label;
+      - lists the decisions for Zach;
+      - when there's nothing to plan, comments and opens nothing.
+    - **`revise-spec`:** applies each of Zach's comments; pushes to the same branch; answers each comment; doesn't widen scope.
+    - **`build-plan`:**
+      - starts from `main` on `claude/build-<topic>` and follows the plan's steps and CLAUDE.md;
+      - records the decisions as `accepted`;
+      - runs lint before pushing;
+      - opens a `build` PR that links the plan, and fills in Outcome;
+      - on a stop condition: "How to stop", `blocked` and `needs-zach`, and a comment to `@ztblick`.
+    - **`fix-pr`:**
+      - reads the trigger: Zach's review, the reviewer's must-fix findings, or the failed run (`--log-failed`, `-n boot-logs`);
+      - fixes only that, pushes, and comments with `<!-- agent-run: fix -->`;
+      - stops as `build-plan` does if a reserved decision is needed.
+    - **`review-pr`:**
+      - starts fresh;
+      - reads the plan, the diff, the decisions and the extra-scrutiny rules: fail closed, footprint, and `bzImage` size from the check;
+      - posts one comment review, never an approval, with inline comments as must fix, should fix and nit;
+      - puts the verdict on the first line;
+      - doesn't edit code.
+    - **`respec`:** reads Zach's comments; opens a `spec` PR on a new `claude/plan-…` branch; comments on the build PR, linking the new spec and asking Zach to close the old PR.
+  - **Step 4.**
+    - **`lint and self-tests` on #6** (run 40516929855) passed in 53 s. Its log shows `lint: clean`, the lint self-test 35 passed, hooks 247 cases (the `buildroot/` case is skipped without a checkout) and the gate self-test 70 cases, all with 0 failed.
+    - **Agents on #6** (run 40516929919):
+      - `agents.yml` parsed, including the YAML anchor for the summary step and job-level `queue: max`, and every role job was skipped.
+      - **The gate's reason was "the gate failed", not "pull request not authored by claude[bot]".** The gate job checks out `main`, as the spec says, and `main` doesn't have `scripts/agent-gate.py` until this merges. The crash path failed closed, as designed.
+      - The same two gate steps, run on the laptop against the real API for a Zach-authored PR (with a `jq` stand-in), read open specs 0, the PR, and a fix count of 0, and gave "pull request not authored by claude[bot]" in the summary table.
+      - The acceptance test's own wording, with the gate's real reason in the summary, can only pass on the first event after merge.
+    - **`build and boot` on #6:** see "Build and boot" below.
+  - **Step 5.** README's setup steps come from "Done by Zach" 1, 2 and 4; the first cycle is item 5.
+  - **Not verified:**
+    - Any role job, since the token, the app and the gate on `main` aren't in place yet.
+    - The loop, the cap's counting against real comments, and the hand-off. These are Zach's walkthrough.
+    - `shellcheck` and `actionlint` aren't installed. Instead, the YAML was parsed with Python, every inline script passed `bash -n`, and GitHub accepted the workflow.
+- **Build and boot:** CI run [40522549897](https://github.com/ztblick/wipeOS/actions/runs/40522549897) on `54975b1` passed both checks.
+  - **`lint and self-tests`:** passed in 58 s.
+  - **`build and boot`:** the decision was `build` (the PR changes workflows); the download cache was restored; the build took 2372 s; `bzImage` is 8,569,856 bytes, unchanged.
+  - **Boots:** all four matched: `kvm` 0, `tcg` 0, `test-fail` 1 and `mem4` 0. `kvm`, `test-fail` and `mem4` ran under KVM, `tcg` under TCG.
+  - **Earlier run:** 40518220652, on `1e43eb9`, was cancelled when `54975b1` was pushed.
+  - **Agents:** the run for `54975b1`, [40522549911](https://github.com/ztblick/wipeOS/actions/runs/40522549911), again ended at the gate with "the gate failed", all nine other jobs skipped, for the bootstrap reason under step 4.
+- **Image size:** not affected; nothing in the image changed.
+- **Choices made within delegated scope:**
+  - **Gate interface:**
+    - Arguments `--fix-count`, `--open-specs` and `--pr FILE`. The third is the PR as `GET /pulls/{n}` returns it, because comment events on PRs lack the head repository and `workflow_run` lacks labels. Without it, those events would have no fork or `needs-zach` check.
+    - Output adds a `trigger=` line for the summaries.
+    - Every value is printed on one line, so a payload can't inject outputs.
+  - **Gate structure:** one handler per event type, with an `Ignore` exception carrying the reason, and fail-closed field access (`get`). A crash in the workflow becomes `ignore`, "the gate failed".
+  - **Reading `needs-zach` literally:** a PR labeled `needs-zach` starts nothing but Zach's `@claude` comments (`mention` and `plan-next`). That includes Zach's own reviews, `needs-respec`, and a merge of a handed-off build PR. Zach removes the label, or comments `@claude`.
+  - **Matching details:**
+    - The CI workflow is matched by path (`.github/workflows/ci.yml`), which is more robust than its name.
+    - Review states are compared case-insensitively.
+    - A merged PR labeled both `spec` and `build` is ignored.
+  - **Fix counting:**
+    - The fix job posts the marker itself, as `github-actions[bot]`, before the agent starts, with a second marker for the trigger.
+    - The gate step counts those comments, minus Zach-review triggers, created after the latest `unlabeled needs-zach` event.
+    - So the cap doesn't depend on the agent writing its comment, and nothing outside this repository's workflows can post as that author.
+    - The skill's own summary comment still starts with the marker, as the spec says; it isn't counted.
+  - **The cap job (`fix-cap`):** no Claude token. It uses `GITHUB_TOKEN`, so its label and comment start no workflow, and lists the failing checks and the latest "changes needed" review.
+  - **Action inputs per role:**
+    - The prompt is "Use the `<skill>` skill" plus IDs only (repository, PR, review ID, run ID); no comment or review text is interpolated.
+    - `allowed_bots: claude[bot]`.
+    - `additional_permissions: actions: read` for build, fix, review and mention.
+    - `track_progress` is left off: agent mode, no tracking comment.
+  - **Allowed tools per role:**
+    - The builder, fix and mention roles get `Bash` in full, because they implement arbitrary plans; the hooks bound it as on the laptop.
+    - The planner roles get `git`, `gh pr`, `gh issue comment`, `gh api` (writes are denied by `guard-git.py`), lint and the index script.
+    - The reviewer gets read-only `git` and `gh` commands, `gh pr review` and the inline-comment MCP tool, and no push.
+  - **Timeouts and turns:**
+
+    | Role | Minutes | Turns |
+    | --- | --- | --- |
+    | Planner (plan, revise, respec) | 30 | 60 |
+    | Builder | 60 | 150 |
+    | Reviewer | 20 | 40 |
+    | Fix | 45 | 100 |
+    | Mention | 30 | 40 |
+    | Gate, labels, fix-cap | 5 | — |
+
+  - **Concurrency:** `agent-pr-<number>` for build, review, fix, fix-cap and mention, and `agent-planner` for plan, revise and respec, all with `cancel-in-progress: false` and `queue: max`.
+  - **Labels:** a `labels` job, using `GITHUB_TOKEN` with `issues: write`, creates whichever is missing before any role job:
+    - `spec` (1d76db), `build` (0e8a16), `needs-respec` (fbca04), `needs-zach` (d93f0b), `blocked` (b60205);
+    - descriptions in `agents.yml`.
+  - **Mention:** the action's tag mode with `trigger_phrase: "@claude"`, `include_comments_by_actor: ztblick,claude[bot]`, and the trust rule through `--append-system-prompt`. Tag mode ignores a `prompt` input, so the trust rule can't go in as a prompt.
+  - **Skill wording:**
+    - Each skill first checks `printenv WIPEOS_AGENT_CI` and stops outside GitHub. They are project skills, so laptop sessions load them too; this session listed them as soon as they were written.
+    - Builder and planner create a PR unlabeled, then add the label, so exactly one `labeled` event starts the reviewer. A blocked build PR gets `needs-zach` before `build`.
+    - `revise-spec` answers Zach's comments in one top-level comment, item by item. Threaded replies need `gh api` POST, which D44 forbids.
+  - **How `respec` points at the old PR:** a comment on the build PR, "@ztblick The revised plan is #N. Please close this pull request (#M) without merging…". The new spec's description starts "Replaces the plan behind #M." The agent never closes it.
+  - **Checkouts:**
+    - Role jobs check out `main`, except `mention`, which takes the event's ref. Skills that work on a PR branch use `gh pr checkout`.
+    - Jobs whose skill runs lint install cppcheck, fetch checkpatch and set `core.hooksPath`.
+  - **`ci-changes.sh`:** unchanged. The preflight found no reason to make the gate or skills build-relevant; they don't affect the image.
+- **Records written:**
+  - **Decisions:** D50–D55, `accepted`, with `decided_in` this plan.
+  - **Open question (new):** "Team-ai-toolkit plugins in agent sessions".
+  - **Open question (addition):** "Lint tool versions across machines". Agent jobs lint with Ubuntu 24.04's gcc and cppcheck on the runner, not the 26.04 container's.
+  - **OKRs:** a progress note under KR1.3; no key result ticked.
+  - **Index:** `context/INDEX.md` regenerated.
+- **Suggested `docs/design.md` change** ("Codebase design", at the end): "Agents also work on the repository from GitHub Actions: a planner proposes plans, a builder implements the ones Zach merges, and a reviewer reviews the builder's pull requests, behind a gate that only Zach and the Claude app's bot can pass (D50–D55). Zach's merge is still the only approval."
+- **Noticed, not touched:**
+  - **The app can't push workflow changes.** Its docs say so (`docs/faq.md`). A plan that edits `.github/workflows/` can't be built by the builder agent.
+  - **PRs that edit `agents.yml` get no agent runs.** On PR events the app-token exchange refuses a workflow that differs from `main`'s, and the action skips with only a warning.
+  - **Base-branch config.** On PR events the action restores `.claude/` and `CLAUDE.md` from the base branch, so a PR's own skill or hook changes don't apply to agent runs on it.
+  - **`Write(/.claude/skills/**)` is redundant.** "Done by Zach" 3 adds it to the `ask` list, but an `Edit(...)` rule already covers every file-editing tool, as noted for workflows in the last plan.
+  - **The anchor for "Done by Zach" 3 is gone.** It said to add the entries after `Write(/.github/workflows/**)`, which Zach has since removed; add them after `Edit(/.github/workflows/**)`.
+  - **The installer's attempt.** `/install-github-app` failed with a 404 while writing its own `.github/workflows/claude.yml`, most likely because the `gh` token lacks the `workflow` scope. That file isn't wanted: it would answer `@claude` comments outside the gate. The installer left the remote branch `add-claude-github-actions-1793111318743`, which has no commits of its own. I didn't delete it; agents never delete remote branches (D44).
+  - **First push to `main` missed the download cache.** It ran cold (2301 s), because GitHub doesn't share caches saved on PR refs with `main`. `main` has its own entry now, and later PRs restore from it.
+- **Done by Zach:**
+  - [x] Install the Claude GitHub App on `ztblick/wipeOS` only. Zach reports it done. Claude can't check it, since `gh` with a user token can't list app installations; the first agent run's token exchange will confirm it.
+  - [x] `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. `gh secret list` shows it, added 2026-10-27 14:33 UTC; renew by about 2027-10-27. Whether the token works shows only on the first agent run.
+  - [x] Add to the `ask` list in `.claude/settings.json`: `Edit(/scripts/agent-gate.py)`, `Edit(/scripts/agent-gate-selftest.sh)`, `Edit(/.claude/skills/**)`. Done in `54975b1`, which also carries the build-and-boot plan's `Edit(/scripts/ci-changes.sh)`. `Write(/.claude/skills/**)` was left out, as redundant.
+  - [x] Settings → Actions → General: fork pull request workflows require approval for all external contributors. The API reports `approval_policy: all_external_contributors`.
+  - [ ] After merging: comment `@claude plan-next` on an issue, then walk the loop once (request changes on the spec, merge it, watch the builder and reviewer, merge the build PR, confirm the planner starts the next spec), and note anything surprising here.
+  - [ ] Optional: comment `@claude` from a second GitHub account and confirm the gate ignores it.

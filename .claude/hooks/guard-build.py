@@ -15,6 +15,9 @@ Denies (exit 2, reason on stderr, which Claude sees):
      make or gmake; scripts/run.sh, run directly or through bash or sh,
      unless an argument is -h or --help; qemu-system-x86_64. Builds and
      boots run on x86_64 hosts only (D38): CI and the cluster.
+     The same commands are denied in an agent session in GitHub, where
+     agents.yml sets WIPEOS_AGENT_CI=1, whatever the host (D54): agents
+     verify through the build and boot check instead.
 
 Asks Zach (permission "ask", with the reason in the prompt):
   5. make clean, make distclean, make <pkg>-dirclean;
@@ -74,6 +77,9 @@ SHELLS = {"bash", "sh", "dash", "zsh"}
 
 # Read once: the machine doesn't change during a call.
 HOST_ARCH = os.environ.get("GUARD_BUILD_HOST_ARCH") or platform.machine()
+# Set by agents.yml in every agent job (D54). Like the overrides above, it
+# is in the hook's own environment, which a Bash command can't change.
+AGENT_CI = os.environ.get("WIPEOS_AGENT_CI") == "1"
 
 
 def subcommands(cmd):
@@ -162,14 +168,20 @@ def runs_launcher(name, args):
 
 
 def arch_reason(name, args):
-    """D40: no builds or boots on a host that isn't x86_64."""
-    if HOST_ARCH == "x86_64":
+    """D40: no builds or boots on a host that isn't x86_64. D54: none in
+    an agent session in GitHub either."""
+    if HOST_ARCH == "x86_64" and not AGENT_CI:
         return None
     what = None
     if name in ("make", "gmake", "qemu-system-x86_64"):
         what = name
     elif runs_launcher(name, args):
         what = "scripts/run.sh"
+    if what and AGENT_CI:
+        return (f"runs {what} in an agent session in GitHub. Agents don't "
+                "build or boot (D54): push, then read the build and boot "
+                "check's summary (gh run view) and its boot-logs artifact "
+                "(gh run download <run-id> -n boot-logs).")
     if what:
         return (f"runs {what} on this {HOST_ARCH} host. Builds and boots "
                 "run only on x86_64 hosts (D38, D40): verify through CI, "

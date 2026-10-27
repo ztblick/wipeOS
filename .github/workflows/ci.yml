@@ -2,12 +2,15 @@
 # (workflow_dispatch). Two jobs, each a check the ruleset on main
 # requires (D44):
 #
-#   lint and self-tests (D43): lint, the lint and hooks self-tests, and
-#     the context index check, in the ubuntu:26.04 container so gcc and
-#     cppcheck are the same releases as on the laptop (D42).
-#   build and boot (D46-D49): builds the image with Buildroot and boots
-#     it with scripts/run.sh under KVM and TCG. It passes in seconds
-#     when nothing build-relevant changed (scripts/ci-changes.sh).
+#   lint and self-tests (D43): lint, the lint, hooks and agent gate
+#     self-tests, and the context index check, in the ubuntu:26.04
+#     container so gcc and cppcheck are the same releases as on the
+#     laptop (D42).
+#   build and boot (D47-D49, D56): builds the image with Buildroot and
+#     boots it with scripts/run.sh under KVM and TCG, but builds only
+#     when the image's inputs are new. A change to the boot test alone
+#     boots an image an earlier run built and passed; with nothing new to
+#     test, it passes in seconds (scripts/ci-changes.sh).
 #
 # Protected like the lint scripts (D34): a weakened workflow is a way
 # around the lint and the boot test.
@@ -70,13 +73,16 @@ jobs:
       - name: Hooks self-test
         run: scripts/hooks-selftest.sh
 
+      - name: Agent gate self-test
+        run: scripts/agent-gate-selftest.sh
+
       - name: Context index is current
         run: scripts/context_index.py --check
 
   build:
     name: build and boot
     # On the runner itself, not in a container: it matches the cluster's
-    # Ubuntu 24.04, and the boots need /dev/kvm (D46).
+    # Ubuntu 24.04, and the boots need /dev/kvm (D56).
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     # actions: read lets the decide step look up earlier passes (D56).

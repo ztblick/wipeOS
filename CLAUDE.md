@@ -79,8 +79,11 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/docs/okrs.md` | This week's OKRs and past weeks |
 | `~/wipeOS/docs/research/` | Research notes behind specific decisions |
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
-| `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35, D40), the git guard (D44) and the index check at Stop (D36) |
+| `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35, D40, D54), the git guard (D44) and the index check at Stop (D36) |
+| `~/wipeOS/.claude/skills/` | One skill per agent role in GitHub: `plan-next`, `revise-spec`, `build-plan`, `fix-pr`, `review-pr`, `respec` (D52) |
 | `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43); build and boot (D47–D49, D56) |
+| `~/wipeOS/.github/workflows/agents.yml` | Agents in GitHub: the gate, then one job per role (D50–D54) |
+| `~/wipeOS/scripts/agent-gate.py`, `agent-gate-selftest.sh` | Decides which agent, if any, an event starts, and its self-test (D51, D53) |
 | `~/wipeOS/buildroot` | Upstream Buildroot checkout, used on build hosts. Run every `make` from here. Don't edit files in it unless I ask. |
 | `~/wipeOS/configs/linux.config` | Our pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Our Buildroot settings |
@@ -169,7 +172,7 @@ This covers wipe and fill paths, memory discovery, label generation, the challen
 
 ## Verifying changes
 
-- **On the laptop:** run lint and the self-tests that cover the change (`scripts/lint.sh`, `scripts/lint-selftest.sh`, `scripts/hooks-selftest.sh`, `scripts/context_index.py --check`). Then push the branch and read the CI result on the pull request: `gh pr checks`, or `gh run view --log-failed` on failure. A change that needs a boot, or a `bzImage` size, is verified by the **`build and boot`** check (D46–D49): read its summary (build time, `bzImage` size, the four boot cases) with `gh run view <run-id>`, and its logs with `gh run download <run-id> -n boot-logs`. A cluster run is needed only for hardware CI can't provide; say so in the report.
+- **On the laptop:** run lint and the self-tests that cover the change (`scripts/lint.sh`, `scripts/lint-selftest.sh`, `scripts/hooks-selftest.sh`, `scripts/agent-gate-selftest.sh`, `scripts/context_index.py --check`). Then push the branch and read the CI result on the pull request: `gh pr checks`, or `gh run view --log-failed` on failure. A change that needs a boot, or a `bzImage` size, is verified by the **`build and boot`** check (D47–D49, D56): read its summary (build time, `bzImage` size, the four boot cases) with `gh run view <run-id>`, and its logs with `gh run download <run-id> -n boot-logs`. A cluster run is needed only for hardware CI can't provide; say so in the report.
 - **On a build host:** after a change, build with the narrowest target and, if relevant, boot in QEMU.
 - Report the commands you ran and what happened. "It compiles" is not "it works." If you couldn't verify something, say so plainly.
 
@@ -182,6 +185,25 @@ Changes reach `main` only through pull requests that I merge (D44).
 - Push with `git push -u origin <branch>`, and open a pull request to `main` with `gh pr create`. Later pushes to the branch update it. Link the pull request in your end-of-task report.
 - **Never:** commit on `main`, push to `main`, force-push, delete a remote branch, merge or approve a pull request, change repository settings, rulesets, secrets or variables, write through `gh api`, or print the `gh` token. `.claude/hooks/guard-git.py` denies these, and a ruleset on `main` requires a pull request and the CI check.
 - Without a plan, the "propose first" rule above still applies before you start a branch.
+
+## Agents in GitHub
+
+Agents also run in GitHub Actions, as the Claude app's bot, `claude[bot]` (D50, D55). `.github/workflows/agents.yml` starts them, and each role follows one skill in `.claude/skills/` (D52). The loop:
+
+1. **Plan.** When I merge a `build` pull request, or comment `@claude plan-next`, the planner opens the next plan as a pull request labeled `spec` (skill `plan-next`), unless a `spec` pull request is already open.
+2. **Revise.** When I request changes on a `spec` pull request, the planner revises it (`revise-spec`). Merging it approves the plan.
+3. **Build.** That merge starts the builder, which implements the plan on `claude/build-<topic>` and opens a pull request labeled `build` (`build-plan`).
+4. **Review.** Each update to a `build` pull request gets a fresh review from the reviewer, as a comment, never an approval (`review-pr`).
+5. **Fix.** The builder fixes the pull request when the review's first line is `Verdict: changes needed`, when CI fails, or when I request changes (`fix-pr`). After three automatic fix runs, it labels the pull request `needs-zach` and hands it to me (D53).
+6. **Re-plan.** Labeling a `build` pull request `needs-respec` sends it back to the planner, which opens a revised `spec` and asks me to close the old pull request (`respec`).
+
+**Labels.** `spec` and `build` mark the two kinds of pull request. `needs-respec` sends a build back to the planner. `needs-zach` stops the agents on that pull request: only my `@claude` comments act on it, and removing the label resets the fix count. `blocked` marks a builder stopped on a decision.
+
+**How I steer.** Reviews (request changes), merges, the labels above, and `@claude` comments. Any other `@claude` comment of mine gets the action's own mention handling.
+
+**Who can start them.** Only `ztblick` and `claude[bot]`. `scripts/agent-gate.py` reads every event first and ignores everyone else, forks, and anything not in its role table (D51); `scripts/agent-gate-selftest.sh` tests it. The gate, its self-test, the skills and the workflows are protected like the lint scripts (D34).
+
+**Rules in agent sessions.** Agents in GitHub follow this file, D44's workflow and its "never" list, through the same hooks as on the laptop. They never build or boot: `WIPEOS_AGENT_CI=1` makes `guard-build.py` deny it (D54), and they read the **`build and boot`** check instead. The app can't push changes to `.github/workflows/`, so a plan that edits a workflow needs a laptop session.
 
 ## When you finish a task, report
 

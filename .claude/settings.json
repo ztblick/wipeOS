@@ -11,7 +11,11 @@
       "Edit(/.claude/settings.local.json)",
       "Edit(/.git/**)",
       "Edit(/scripts/fetch-checkpatch.sh)",
-      "Edit(/.github/workflows/**)"
+      "Edit(/.github/workflows/**)",
+      "Edit(/scripts/ci-changes.sh)",
+      "Edit(/scripts/agent-gate.py)",
+      "Edit(/scripts/agent-gate-selftest.sh)",
+      "Edit(/.claude/skills/**)"
     ],
     "deny": [
       "Edit(/docs/design.md)"

@@ -14,7 +14,9 @@ Bash. Blocks (exit 2, reason on stderr) any command that:
      scripts/lint-selftest.sh, scripts/hooks-selftest.sh,
      scripts/fetch-checkpatch.sh (D41), .github/workflows/ (the CI that
      runs lint, D43), scripts/ci-changes.sh (which decides whether CI
-     builds, D46), .checkpatch.conf, .claude/, and .git/config and
+     builds, D46), scripts/agent-gate.py and its self-test (which decide
+     whether an agent runs, D51), .checkpatch.conf, .claude/ (the hooks,
+     settings and the agents' skills, D52), and .git/config and
      .git/hooks/. The Edit tool already has
      to ask before touching most of these (settings.json); this closes the
      shell route. Reading them and running the lint scripts is allowed,
@@ -65,6 +67,7 @@ PROTECTED = re.compile(
     r"|scripts/hooks-selftest\.sh$"
     r"|scripts/fetch-checkpatch\.sh$"
     r"|scripts/ci-changes\.sh$"
+    r"|scripts/agent-gate(?:-selftest\.sh|\.py)$"
     r"|\.github/workflows(?:/|$)"
     r"|\.checkpatch\.conf$"
     r"|\.claude(?:/|$)"
@@ -85,6 +88,7 @@ RUNNABLE = re.compile(r"(?:^|/)(?:scripts/lint(?:-selftest)?\.sh"
                       r"|scripts/hooks-selftest\.sh"
                       r"|scripts/fetch-checkpatch\.sh"
                       r"|scripts/ci-changes\.sh"
+                      r"|scripts/agent-gate(?:-selftest\.sh|\.py)"
                       r"|\.githooks/pre-commit|\.claude/hooks/[^/]+)$")
 # Hook scripts, which python3 may run (D37). Running one isn't changing it.
 HOOK_SCRIPT = re.compile(r"(?:^|/)\.claude/hooks/[^/]+$")

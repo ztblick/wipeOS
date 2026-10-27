@@ -72,6 +72,7 @@ These run on the laptop, on a build host and in CI:
 
 - `scripts/lint.sh` lints all C under `src/` with checkpatch, gcc's warnings and analyzer, and cppcheck (D33). It always compiles for x86_64 (D42) and prints its tool versions first. `scripts/lint-selftest.sh` checks that each lint check catches a planted defect, and that the pre-commit hook allows or refuses commits as it should.
 - `scripts/hooks-selftest.sh` feeds each Claude Code hook in `.claude/hooks/` the input Claude Code would send, for a fixed table of cases, and exits 0 only if every one gives the expected result: block, ask or pass (D37). Add `-v` to list every case.
+- `scripts/agent-gate-selftest.sh` runs the agent gate (`scripts/agent-gate.py`) on a fixed table of GitHub events and checks which agent, if any, each one starts (D51). Add `-v` to list every case.
 - `scripts/context_index.py --check` exits 1 if `context/INDEX.md` is out of date.
 
 ### How changes reach main (D44)
@@ -103,6 +104,29 @@ gh run download <run-id> -n boot-logs -D logs/ci-<run-id>
 ```
 
 `gh run download -n <name>` fetches one artifact by name, and `-D` says where to unpack it. It refuses to overwrite a file that already exists, hence the `rm -f`; the next `make` rebuilds the image anyway. The last command fetches the CI boot logs to compare with your own.
+
+### Agents in GitHub (D50–D55)
+
+A planner, a builder and a reviewer run in GitHub Actions as `claude[bot]` (`.github/workflows/agents.yml`), started only by my merges, reviews, labels and `@claude` comments and by the agents' own pull requests and CI results. CLAUDE.md's "Agents in GitHub" describes the loop and the labels.
+
+**Setup, once:**
+
+1. Install the Claude GitHub App on `ztblick/wipeOS` only: <https://github.com/apps/claude> (or `/install-github-app` in Claude Code), choosing "Only select repositories".
+2. On the laptop, run `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN` and paste the token. It lasts a year; note the renewal date.
+3. In Settings → Actions → General, check that fork pull request workflows require approval for all external contributors.
+
+**Start the first cycle** with a comment on any issue: `@claude plan-next`. The planner opens a `spec` pull request. From there:
+
+| To | Do |
+| --- | --- |
+| Change a plan | Request changes on its `spec` pull request |
+| Approve a plan | Merge it; the builder starts |
+| Change a build | Request changes on its `build` pull request |
+| Send a build back to planning | Label it `needs-respec` |
+| Take a pull request over | Label it `needs-zach`; remove it to hand back |
+| Ask anything else | Comment `@claude ...` |
+
+Each run's summary on the Actions page shows the gate's decision, and for an agent, the role, the trigger and the pull requests it opened.
 
 ### Set up on a new machine
 
@@ -182,6 +206,9 @@ To commit from a build host, also run `git config core.hooksPath .githooks`, ins
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the Claude Code hooks (D37) |
 | `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43); build and boot (D47–D49, D56) |
 | `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds, only boots, or skips, and fingerprints the image and boot-test inputs (D56) |
+| `~/wipeOS/.github/workflows/agents.yml` | Agents in GitHub: the gate, then one job per role (D50–D54) |
+| `~/wipeOS/scripts/agent-gate.py`, `agent-gate-selftest.sh` | Decides which agent an event starts, and its self-test (D51) |
+| `~/wipeOS/.claude/skills/` | The agents' instructions, one skill per role (D52) |
 | `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
