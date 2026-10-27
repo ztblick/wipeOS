@@ -206,6 +206,7 @@ jobs:
           (cd buildroot && make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig &&
             make) >logs/ci/build.log 2>&1 || rc=$?
           seconds=$(($(date +%s) - start))
+          tail -n 200 logs/ci/build.log >logs/ci/build-tail.log
           echo "seconds=$seconds" >>"$GITHUB_OUTPUT"
           echo "end_gb=$(df --output=avail -BG / | tail -n 1 | tr -dc 0-9)" \
             >>"$GITHUB_OUTPUT"
@@ -226,3 +227,124 @@ jobs:
         with:
           path: buildroot/dl
           key: ${{ steps.dl.outputs.cache-primary-key }}
+
+      # The runner has /dev/kvm, but only root and the kvm group may open
+      # it. This udev rule opens it to every user, so run.sh finds KVM
+      # usable (D39, D48). There is no fallback: if it doesn't work, the
+      # kvm boot below fails.
+      - name: Enable KVM
+        if: steps.build.outcome == 'success'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || true
+
+      # Four boots of the image just built (D48), each forcing its mode so
+      # a broken KVM setup can't quietly pass under TCG. Every case runs
+      # even if an earlier one failed; the step fails if any case didn't
+      # give its expected exit code (D30) and log line.
+      - name: Boot
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          results=$RUNNER_TEMP/boots.tsv
+          : >"$results"
+          failed=0
+          # boot CASE WANT_EXIT WANT_LINE RUN_SH_ARGS...
+          boot() {
+            local name=$1 want=$2 line=$3 rc=0 accel verdict
+            shift 3
+            local log=logs/ci/$name.log
+            echo "::group::$name: scripts/run.sh --no-build --log $log $*"
+            scripts/run.sh --no-build --log "$log" "$@" || rc=$?
+            echo "::endgroup::"
+            accel=$(grep -a -m 1 '^RUN git=' "$log" 2>/dev/null |
+              grep -o 'accel=[a-z]*' | cut -d= -f2 || true)
+            if [ $rc -eq "$want" ] && grep -aq -- "$line" "$log" 2>/dev/null; then
+              verdict=pass
+            else
+              verdict=fail
+              failed=1
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\n' "$name" "${accel:-none}" "$rc" \
+              "$want" "$verdict" >>"$results"
+            echo "$name: accel=${accel:-none}, exit $rc (want $want): $verdict"
+          }
+          boot kvm 0 '^RUN git=.* accel=kvm ' --accel kvm
+          boot tcg 0 '^RUN git=.* accel=tcg ' --accel tcg
+          boot test-fail 1 '^WIPEOS RESULT=FAIL' --test-fail
+          boot mem4 0 '^WIPEOS RESULT=SUCCESS' --mem 4
+          exit $failed
+
+      # D49: build time, image size and the boot table, on the run's page.
+      - name: Summary
+        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          BUILD_S: ${{ steps.build.outputs.seconds }}
+          DL_HIT: ${{ steps.dl.outputs.cache-hit }}
+          DL_KEY: ${{ steps.dl.outputs.cache-matched-key }}
+          DISK_BEFORE: ${{ steps.disk.outputs.before_gb }}
+          DISK_START: ${{ steps.disk.outputs.start_gb }}
+          DISK_END: ${{ steps.build.outputs.end_gb }}
+        run: |
+          image=buildroot/output/images/bzImage
+          if [ -n "$BUILD_S" ]; then
+            took="$((BUILD_S / 60)) min $((BUILD_S % 60)) s ($BUILD_S s)"
+          else
+            took="didn't run"
+          fi
+          case $DL_HIT in
+          true) dl="exact hit, \`$DL_KEY\`" ;;
+          false) dl="partial, restored from \`$DL_KEY\`" ;;
+          *) dl="miss (cold)" ;;
+          esac
+          {
+            echo "### Build"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Build | ${BUILD:-not run}, $took |"
+            if [ -f "$image" ]; then
+              echo "| \`bzImage\` | $(stat -c %s "$image") bytes |"
+            else
+              echo "| \`bzImage\` | none |"
+            fi
+            echo "| Download cache | $dl |"
+            echo "| Free disk | ${DISK_BEFORE:-?} GB at start, ${DISK_START:-?} GB before the build, ${DISK_END:-?} GB after |"
+            echo
+            echo "### Boots"
+            echo
+            if [ -s "$RUNNER_TEMP/boots.tsv" ]; then
+              echo "| Case | Accelerator | Exit | Expected | Result |"
+              echo "| --- | --- | --- | --- | --- |"
+              while IFS=$'\t' read -r name accel rc want verdict; do
+                echo "| \`$name\` | $accel | $rc | $want | $verdict |"
+              done <"$RUNNER_TEMP/boots.tsv"
+            else
+              echo "No boots ran."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # D49: kept 14 days, and public like the repository. Agents read
+      # failures with gh run download <run-id> -n boot-logs.
+      - name: Upload boot logs
+        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: boot-logs
+          path: |
+            logs/ci/*.log
+            !logs/ci/build.log
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload bzImage
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bzImage
+          path: buildroot/output/images/bzImage
+          retention-days: 14
+          if-no-files-found: error
