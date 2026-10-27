@@ -48,7 +48,7 @@ Three kinds of machine, each with its own job (D38). `uname -m` tells you where 
 | Machine | What it is | What runs there |
 | --- | --- | --- |
 | Laptop | Windows on Arm, WSL2 with Ubuntu 26.04, **aarch64**, 8 cores, 8 GB | Editing, Claude Code, lint, the self-tests, git and `gh`, SSH to the cluster. No builds or boots. |
-| GitHub-hosted runners | x86_64: the lint job in an `ubuntu:26.04` container, the build job on the `ubuntu-24.04` runner itself | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check; and, when a build-relevant file changed, the build and four boots (D46–D49) |
+| GitHub-hosted runners | x86_64: the lint job in an `ubuntu:26.04` container, the build job on the `ubuntu-24.04` runner itself | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check; and, when a build-relevant file changed, the build and four boots (D47–D49, D56) |
 | Cluster | x86_64 Linux servers, reached over SSH | Builds and QEMU boots, with KVM where the node has it (D39). I run these. |
 
 The target is **x86_64** (D17). Buildroot cross-compiles the image with its own toolchain, and lint compiles for x86_64 on every machine (D42).
@@ -80,14 +80,14 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/docs/research/` | Research notes behind specific decisions |
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
 | `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35, D40), the git guard (D44) and the index check at Stop (D36) |
-| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43); build and boot (D46–D49) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43); build and boot (D47–D49, D56) |
 | `~/wipeOS/buildroot` | Upstream Buildroot checkout, used on build hosts. Run every `make` from here. Don't edit files in it unless I ask. |
 | `~/wipeOS/configs/linux.config` | Our pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Our Buildroot settings |
 | `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the hooks in `.claude/hooks/` (D37) |
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches the kernel's `checkpatch.pl` for lint into `.cache/` (D41) |
-| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds, from the changed paths (D46) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds: from the changed paths, and a fingerprint of the build inputs that skips inputs already passed (D56) |
 | `~/wipeOS/configs/buildroot.version` | The Buildroot release tag that build hosts and CI clone (D47) |
 | `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
 | `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |

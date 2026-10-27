@@ -18,7 +18,7 @@ A minimal Linux image for verifiable memory wipes. On each host in a pod, WipeOS
 
 Current as of Oct 26, 2026. Update this section whenever the configuration changes.
 
-**Where things run (D38).** Builds and boots run on x86_64 Linux build hosts: the cluster, or any x86_64 Linux machine. My laptop (Windows on Arm, WSL2) is a workstation for editing, Claude Code, lint, git and SSH, and doesn't build or boot (D40). CI runs lint, the self-tests and the index check on every pull request to `main` and every push to `main` (D43). When a change touches what goes into the image or how it boots, CI also builds the image and boots it four times, under KVM and TCG (D46–D49).
+**Where things run (D38).** Builds and boots run on x86_64 Linux build hosts: the cluster, or any x86_64 Linux machine. My laptop (Windows on Arm, WSL2) is a workstation for editing, Claude Code, lint, git and SSH, and doesn't build or boot (D40). CI runs lint, the self-tests and the index check on every pull request to `main` and every push to `main` (D43). When a change touches what goes into the image or how it boots, CI also builds the image and boots it four times, under KVM and TCG (D47–D49, D56).
 
 ### On a build host
 
@@ -78,9 +78,14 @@ These run on the laptop, on a build host and in CI:
 
 Work happens on a branch, `claude/<topic>` for agents, which is pushed and opened as a pull request to `main` (`gh pr create`). CI must pass, and only I merge. A ruleset on `main` requires a pull request and the CI checks and blocks force pushes; `.claude/hooks/guard-git.py` stops agents from pushing to `main`, merging or approving.
 
-### Build and boot in CI (D46–D49)
+### Build and boot in CI (D47–D49, D56)
 
-The **`build and boot`** check builds the image on a GitHub-hosted runner and boots it with `scripts/run.sh` four times: `--accel kvm`, `--accel tcg`, `--test-fail` (expects exit 1) and `--mem 4`. `scripts/ci-changes.sh` decides first whether anything that can change the image or the boot changed (`src/`, `package/`, `configs/`, the external-tree files, `run.sh`, the script itself, or the workflow). If not, the check passes in seconds and its summary says so. The run's summary page shows the build time, the `bzImage` size and the boot table, and the run keeps two artifacts for 14 days: `boot-logs` (the four boot logs and the last 200 lines of the build log) and `bzImage`.
+The **`build and boot`** check builds the image on a GitHub-hosted runner and boots it with `scripts/run.sh` four times: `--accel kvm`, `--accel tcg`, `--test-fail` (expects exit 1) and `--mem 4`. The build takes 35–40 minutes, so the check skips it whenever it can (D56), and passes in seconds with its summary saying why:
+
+- **Nothing build-relevant changed.** `scripts/ci-changes.sh` checks whether anything that can change the image or the boot changed: `src/`, `package/`, `configs/`, the external-tree files, `run.sh`, the script itself, or `.github/workflows/ci.yml`.
+- **These inputs already passed.** `scripts/ci-changes.sh --fingerprint HEAD` hashes exactly those inputs. After a run passes, it leaves a `build-and-boot-passed-<fingerprint>` artifact for 14 days, and a later run with the same fingerprint skips. Documentation commits on a pull request, and the push to `main` when it merges, reuse the pull request's pass. A manual run (`workflow_dispatch`) always builds.
+
+The run's summary page shows the build time, the `bzImage` size and the boot table, and the run keeps two artifacts for 14 days: `boot-logs` (the four boot logs and the last 200 lines of the build log) and `bzImage`.
 
 **Booting an image built by CI.** On a build host with `gh` installed and logged in (`gh auth login`), fetch the image from a run instead of building it:
 
@@ -172,8 +177,8 @@ To commit from a build host, also run `git config core.hooksPath .githooks`, ins
 | `~/wipeOS/scripts/lint.sh`, `lint-selftest.sh` | Lint for C, and its self-test (D33) |
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches `checkpatch.pl` for lint into `.cache/` (D41) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the Claude Code hooks (D37) |
-| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43); build and boot (D46–D49) |
-| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds and boots (D46) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43); build and boot (D47–D49, D56) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds and boots, and fingerprints the build inputs (D56) |
 | `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
