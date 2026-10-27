@@ -79,6 +79,10 @@ jobs:
     # Ubuntu 24.04, and the boots need /dev/kvm (D46).
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    # actions: read lets the decide step look up earlier passes (D56).
+    permissions:
+      contents: read
+      actions: read
     defaults:
       run:
         # bash -eo pipefail, so a failure inside a pipe fails the step.
@@ -92,10 +96,16 @@ jobs:
 
       # The job always runs, because a required check that never runs
       # leaves a pull request unmergeable; this step decides whether the
-      # rest does (D46). A pull request is compared from its merge base
+      # rest does (D56). A pull request is compared from its merge base
       # with the base branch, a push to main with the previous head, and
       # a manual run has no base, so it builds. Anything but a clear
       # "skip" builds.
+      #
+      # Then, unless this is a manual run, it skips a build whose inputs
+      # already passed: the fingerprint of the build inputs in the commit
+      # being tested (the merge commit, for a pull request) is looked up
+      # among the pass markers earlier runs uploaded. Only markers from
+      # runs on this repository count, never a fork's.
       - name: Decide whether to build
         id: decide
         env:
@@ -103,6 +113,7 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           case $EVENT in
           pull_request) base=$PR_BASE head=$PR_HEAD ;;
@@ -118,12 +129,35 @@ jobs:
           else
             build=true
           fi
+          # A failed fingerprint or lookup leaves passed empty: it builds.
+          fingerprint= passed=
+          if [ $build = true ]; then
+            fingerprint=$(scripts/ci-changes.sh --fingerprint HEAD) || fingerprint=
+            if [ -n "$fingerprint" ] && [ "$EVENT" != workflow_dispatch ]; then
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=build-and-boot-passed-$fingerprint&per_page=100" \
+                --jq '[.artifacts[] | select(.expired | not)
+                  | select(.workflow_run.head_repository_id == .workflow_run.repository_id)][0] // empty
+                  | "\(.workflow_run.id) \(.workflow_run.head_sha)"') || passed=
+            fi
+            if [ -n "$passed" ]; then build=false; fi
+          fi
+          echo "fingerprint: ${fingerprint:-none}; earlier pass: ${passed:-none}"
           echo "build=$build" >>"$GITHUB_OUTPUT"
+          echo "fingerprint=$fingerprint" >>"$GITHUB_OUTPUT"
           {
-            if [ $build = false ]; then
+            if [ -n "$passed" ]; then
+              read -r pass_run pass_sha <<<"$passed"
+              echo "These build inputs already passed build and boot in run" \
+                "[$pass_run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$pass_run)" \
+                "(commit \`${pass_sha:0:7}\`); build and boot skipped."
+              echo
+              echo "Fingerprint: \`$fingerprint\`"
+            elif [ $build = false ]; then
               echo "No build-relevant changes; build and boot skipped."
             else
               echo "Build-relevant changes, or no base to compare with; building."
+              echo
+              echo "Fingerprint: \`${fingerprint:-none}\`"
             fi
             if [ $rc -ne 0 ]; then
               echo
@@ -346,5 +380,25 @@ jobs:
         with:
           name: bzImage
           path: buildroot/output/images/bzImage
+          retention-days: 14
+          if-no-files-found: error
+
+      # D56: only after the build and all four boots passed (every step
+      # above succeeded), record that these inputs pass. A later run with
+      # the same fingerprint skips, for as long as the marker is kept.
+      - name: Write the pass marker
+        if: steps.decide.outputs.build == 'true' && steps.decide.outputs.fingerprint != ''
+        env:
+          FINGERPRINT: ${{ steps.decide.outputs.fingerprint }}
+        run: |
+          printf 'fingerprint=%s\ncommit=%s\nrun=%s\n' "$FINGERPRINT" \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" >"$RUNNER_TEMP/build-and-boot-passed.txt"
+
+      - name: Upload the pass marker
+        if: steps.decide.outputs.build == 'true' && steps.decide.outputs.fingerprint != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-and-boot-passed-${{ steps.decide.outputs.fingerprint }}
+          path: ${{ runner.temp }}/build-and-boot-passed.txt
           retention-days: 14
           if-no-files-found: error
