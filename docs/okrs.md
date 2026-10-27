@@ -4,7 +4,7 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
 
 **Editing rules.** Claude Code may tick a key result it completed, adding a one-line note of the evidence, and may add progress notes under a key result. It does not add, remove or reword objectives or key results.
 
-## Week of Oct 19, 2026
+## Week of Oct 26, 2026
 
 **O1. Stand up a minimal WipeOS image and VM harness.**
 
@@ -31,9 +31,9 @@ Weekly objectives and key results. I write OKRs one week at a time; the current 
 
 **O3. Share the design and get feedback.**
 
-- [ ] **KR3.1** Walk Landy, my mentor, through the design, and the feedback is recorded in this doc.
-- [ ] **KR3.2** Ask around the Lucid network for systems engineers who can review the design.
-- [ ] **KR3.3** Read up on the Linux kernel internals this design depends on, such as kexec, memory management and the boot path.
+- [x] **KR3.1** Walk Landy, my mentor, through the design, and the feedback is recorded in this doc.
+- [x] **KR3.2** Ask around the Lucid network for systems engineers who can review the design.
+- [x] **KR3.3** Read up on the Linux kernel internals this design depends on, such as kexec, memory management and the boot path.
 
 **O4. Write the first erasure code: wipe a few pages of DRAM and stream back their fingerprints.**
 
