@@ -280,8 +280,8 @@ Claude Code can't do these. List them in Outcome as a checklist.
 
 ## Outcome
 
-- **Status:** done, on branch `claude/agents-in-github` in pull request [#6](https://github.com/ztblick/wipeOS/pull/6). The end-to-end loop can only run once this is merged and "Done by Zach" 1–3 are in place; that is Zach's walkthrough. No stop condition came up. D50–D55 were free, as planned.
-- **Commits:** `8f2e9fb` (step 1), `5bd9424` (step 2), `d90a21a` (step 3), `1e3171a` (step 4), `48ef1d4` (step 5), and the records commit (step 6).
+- **Status:** done, on branch `claude/agents-in-github` in pull request [#6](https://github.com/ztblick/wipeOS/pull/6). Both required checks pass. "Done by Zach" 1–4 are done. The end-to-end loop can only run after this merges; that is Zach's walkthrough, item 5. No stop condition came up. D50–D55 were free, as planned.
+- **Commits:** `8f2e9fb` (step 1), `5bd9424` (step 2), `d90a21a` (step 3), `1e3171a` (step 4), `48ef1d4` (step 5), `1e43eb9` (step 6), Zach's `54975b1` ("Done by Zach" 3), and this Outcome update, the pull request's final commit.
 - **Changed:**
   - `scripts/agent-gate.py` (new): the sender gate (D51), with the loop cap's `fix-cap` role (D53).
   - `scripts/agent-gate-selftest.sh` (new): 70 cases.
@@ -351,7 +351,12 @@ Claude Code can't do these. List them in Outcome as a checklist.
     - Any role job, since the token, the app and the gate on `main` aren't in place yet.
     - The loop, the cap's counting against real comments, and the hand-off. These are Zach's walkthrough.
     - `shellcheck` and `actionlint` aren't installed. Instead, the YAML was parsed with Python, every inline script passed `bash -n`, and GitHub accepted the workflow.
-- **Build and boot:** pending at the time of writing.
+- **Build and boot:** CI run [40522549897](https://github.com/ztblick/wipeOS/actions/runs/40522549897) on `54975b1` passed both checks.
+  - **`lint and self-tests`:** passed in 58 s.
+  - **`build and boot`:** the decision was `build` (the PR changes workflows); the download cache was restored; the build took 2372 s; `bzImage` is 8,569,856 bytes, unchanged.
+  - **Boots:** all four matched, `kvm` 0, `tcg` 0, `test-fail` 1 and `mem4` 0, the first three under KVM except `tcg`.
+  - **Earlier run:** 40518220652, on `1e43eb9`, was cancelled when `54975b1` was pushed.
+  - **Agents:** the run for `54975b1`, [40522549911](https://github.com/ztblick/wipeOS/actions/runs/40522549911), again ended at the gate with "the gate failed", all nine other jobs skipped, for the bootstrap reason under step 4.
 - **Image size:** not affected; nothing in the image changed.
 - **Choices made within delegated scope:**
   - **Gate interface:**
@@ -417,12 +422,12 @@ Claude Code can't do these. List them in Outcome as a checklist.
   - **Base-branch config.** On PR events the action restores `.claude/` and `CLAUDE.md` from the base branch, so a PR's own skill or hook changes don't apply to agent runs on it.
   - **`Write(/.claude/skills/**)` is redundant.** "Done by Zach" 3 adds it to the `ask` list, but an `Edit(...)` rule already covers every file-editing tool, as noted for workflows in the last plan.
   - **The anchor for "Done by Zach" 3 is gone.** It said to add the entries after `Write(/.github/workflows/**)`, which Zach has since removed; add them after `Edit(/.github/workflows/**)`.
-  - **Zach's uncommitted settings change.** The working tree has his uncommitted `Edit(/scripts/ci-changes.sh)` entry in `.claude/settings.json` (the build-and-boot plan's "Done by Zach" 1). I left it alone.
+  - **The installer's attempt.** `/install-github-app` failed with a 404 while writing its own `.github/workflows/claude.yml`, most likely because the `gh` token lacks the `workflow` scope. That file isn't wanted: it would answer `@claude` comments outside the gate. The installer left the remote branch `add-claude-github-actions-1793111318743`, which has no commits of its own. I didn't delete it; agents never delete remote branches (D44).
   - **First push to `main` missed the download cache.** It ran cold (2301 s), because GitHub doesn't share caches saved on PR refs with `main`. `main` has its own entry now, and later PRs restore from it.
 - **Done by Zach:**
-  - [ ] Install the Claude GitHub App on `ztblick/wipeOS` only.
-  - [ ] `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`; note the renewal date.
-  - [ ] Add to the `ask` list in `.claude/settings.json`: `Edit(/scripts/agent-gate.py)`, `Edit(/scripts/agent-gate-selftest.sh)`, `Edit(/.claude/skills/**)`, `Write(/.claude/skills/**)`.
-  - [ ] Settings → Actions → General: confirm fork pull request workflows require approval for all external contributors.
+  - [x] Install the Claude GitHub App on `ztblick/wipeOS` only. Zach reports it done. Claude can't check it, since `gh` with a user token can't list app installations; the first agent run's token exchange will confirm it.
+  - [x] `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. `gh secret list` shows it, added 2026-10-27 14:33 UTC; renew by about 2027-10-27. Whether the token works shows only on the first agent run.
+  - [x] Add to the `ask` list in `.claude/settings.json`: `Edit(/scripts/agent-gate.py)`, `Edit(/scripts/agent-gate-selftest.sh)`, `Edit(/.claude/skills/**)`. Done in `54975b1`, which also carries the build-and-boot plan's `Edit(/scripts/ci-changes.sh)`. `Write(/.claude/skills/**)` was left out, as redundant.
+  - [x] Settings → Actions → General: fork pull request workflows require approval for all external contributors. The API reports `approval_policy: all_external_contributors`.
   - [ ] After merging: comment `@claude plan-next` on an issue, then walk the loop once (request changes on the spec, merge it, watch the builder and reviewer, merge the build PR, confirm the planner starts the next spec), and note anything surprising here.
   - [ ] Optional: comment `@claude` from a second GitHub account and confirm the gate ignores it.
