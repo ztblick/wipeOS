@@ -11,8 +11,7 @@
       "Edit(/.claude/settings.local.json)",
       "Edit(/.git/**)",
       "Edit(/scripts/fetch-checkpatch.sh)",
-      "Edit(/.github/workflows/**)",
-      "Write(/.github/workflows/**)"
+      "Edit(/.github/workflows/**)"
     ],
     "deny": [
       "Edit(/docs/design.md)"
