@@ -281,7 +281,7 @@ Claude Code can't do these. List them in Outcome as a checklist.
 ## Outcome
 
 - **Status:** done, on branch `claude/agents-in-github` in pull request [#6](https://github.com/ztblick/wipeOS/pull/6). Both required checks pass. "Done by Zach" 1–4 are done. The end-to-end loop can only run after this merges; that is Zach's walkthrough, item 5. No stop condition came up. D50–D55 were free, as planned.
-- **Commits:** `8f2e9fb` (step 1), `5bd9424` (step 2), `d90a21a` (step 3), `1e3171a` (step 4), `48ef1d4` (step 5), `1e43eb9` (step 6), Zach's `54975b1` ("Done by Zach" 3), and this Outcome update, the pull request's final commit.
+- **Commits:** `8f2e9fb` (step 1), `5bd9424` (step 2), `d90a21a` (step 3), `1e3171a` (step 4), `48ef1d4` (step 5), `1e43eb9` (step 6), Zach's `54975b1` ("Done by Zach" 3), `96c6e76` (Outcome: CI results and setup), and a last commit at Zach's request: the final Outcome update in `build-plan`, and a wording fix here.
 - **Changed:**
   - `scripts/agent-gate.py` (new): the sender gate (D51), with the loop cap's `fix-cap` role (D53).
   - `scripts/agent-gate-selftest.sh` (new): 70 cases.
@@ -291,6 +291,9 @@ Claude Code can't do these. List them in Outcome as a checklist.
     - 21 new cases: 10 in Part 1, 11 in Part 2 with a new `agent()` helper.
     - In the harness, `WIPEOS_AGENT_CI` is now cleared for every case, so the existing cases still pass when the self-test runs inside an agent session. No existing case changed.
   - `.claude/skills/{plan-next,revise-spec,build-plan,fix-pr,review-pr,respec}/SKILL.md` (new): one per role (D52).
+    - At Zach's request after CI passed, `build-plan` also carries his convention that the commit finishing Outcome is the pull request's last, made only after CI passes.
+    - The builder now leaves the CI results pending and asks Zach to comment `@claude run the final Outcome update from the build-plan skill` once both checks pass. A "Final Outcome update" section says what that run checks, records and commits.
+    - Nothing starts an agent when CI passes, and the builder's 60 minutes don't cover a 35–40 minute build, so Zach's comment, through the existing `mention` role, is the trigger. Neither the gate nor the workflow changed.
   - `.github/workflows/agents.yml` (new): the gate, the labels job, and one job per role (D50, D51, D53, D54).
   - `.github/workflows/ci.yml`: the gate self-test in **`lint and self-tests`**, and the header comment.
   - `CLAUDE.md`: a new "Agents in GitHub" section; layout rows for the skills, `agents.yml` and the gate; the hooks row cites D54; the gate self-test listed under "Verifying changes".
@@ -354,7 +357,7 @@ Claude Code can't do these. List them in Outcome as a checklist.
 - **Build and boot:** CI run [40522549897](https://github.com/ztblick/wipeOS/actions/runs/40522549897) on `54975b1` passed both checks.
   - **`lint and self-tests`:** passed in 58 s.
   - **`build and boot`:** the decision was `build` (the PR changes workflows); the download cache was restored; the build took 2372 s; `bzImage` is 8,569,856 bytes, unchanged.
-  - **Boots:** all four matched, `kvm` 0, `tcg` 0, `test-fail` 1 and `mem4` 0, the first three under KVM except `tcg`.
+  - **Boots:** all four matched: `kvm` 0, `tcg` 0, `test-fail` 1 and `mem4` 0. `kvm`, `test-fail` and `mem4` ran under KVM, `tcg` under TCG.
   - **Earlier run:** 40518220652, on `1e43eb9`, was cancelled when `54975b1` was pushed.
   - **Agents:** the run for `54975b1`, [40522549911](https://github.com/ztblick/wipeOS/actions/runs/40522549911), again ended at the gate with "the gate failed", all nine other jobs skipped, for the bootstrap reason under step 4.
 - **Image size:** not affected; nothing in the image changed.
