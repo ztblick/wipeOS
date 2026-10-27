@@ -87,12 +87,14 @@ The **`build and boot`** check builds the image on a GitHub-hosted runner and bo
 ```bash
 cd ~/wipeOS
 gh run list --workflow CI --branch main --limit 5
+mkdir -p buildroot/output/images
+rm -f buildroot/output/images/bzImage
 gh run download <run-id> -n bzImage -D buildroot/output/images
 scripts/run.sh --no-build
 gh run download <run-id> -n boot-logs -D logs/ci-<run-id>
 ```
 
-`gh run download -n <name>` fetches one artifact by name, and `-D` says where to unpack it. The last command fetches the CI boot logs to compare with your own.
+`gh run download -n <name>` fetches one artifact by name, and `-D` says where to unpack it. It refuses to overwrite a file that already exists, hence the `rm -f`; the next `make` rebuilds the image anyway. The last command fetches the CI boot logs to compare with your own.
 
 ### Set up on a new machine
 
