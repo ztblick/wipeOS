@@ -6,9 +6,11 @@
 #     self-tests, and the context index check, in the ubuntu:26.04
 #     container so gcc and cppcheck are the same releases as on the
 #     laptop (D42).
-#   build and boot (D46-D49): builds the image with Buildroot and boots
-#     it with scripts/run.sh under KVM and TCG. It passes in seconds
-#     when nothing build-relevant changed (scripts/ci-changes.sh).
+#   build and boot (D47-D49, D56): builds the image with Buildroot and
+#     boots it with scripts/run.sh under KVM and TCG, but builds only
+#     when the image's inputs are new. A change to the boot test alone
+#     boots an image an earlier run built and passed; with nothing new to
+#     test, it passes in seconds (scripts/ci-changes.sh).
 #
 # Protected like the lint scripts (D34): a weakened workflow is a way
 # around the lint and the boot test.
@@ -80,9 +82,13 @@ jobs:
   build:
     name: build and boot
     # On the runner itself, not in a container: it matches the cluster's
-    # Ubuntu 24.04, and the boots need /dev/kvm (D46).
+    # Ubuntu 24.04, and the boots need /dev/kvm (D56).
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    # actions: read lets the decide step look up earlier passes (D56).
+    permissions:
+      contents: read
+      actions: read
     defaults:
       run:
         # bash -eo pipefail, so a failure inside a pipe fails the step.
@@ -95,18 +101,27 @@ jobs:
           fetch-depth: 0
 
       # The job always runs, because a required check that never runs
-      # leaves a pull request unmergeable; this step decides whether the
-      # rest does (D46). A pull request is compared from its merge base
+      # leaves a pull request unmergeable; this step decides how much of
+      # the rest does (D56), as one of three modes:
+      #   skip   nothing to test: no change to the image or the boot test,
+      #          or this exact image and boot test already passed
+      #   boot   the image's inputs match an image an earlier run built
+      #          and passed: boot that image again, without building
+      #   build  build the image, then boot it
+      # scripts/ci-changes.sh compares a pull request from its merge base
       # with the base branch, a push to main with the previous head, and
-      # a manual run has no base, so it builds. Anything but a clear
-      # "skip" builds.
-      - name: Decide whether to build
+      # says build, boot or skip. Earlier passes are found by fingerprint
+      # (of the commit under test: the merge commit, for a pull request)
+      # among the pass markers runs on this repository uploaded, never a
+      # fork's. A manual run always builds, and so does anything in doubt.
+      - name: Decide what to run
         id: decide
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           case $EVENT in
           pull_request) base=$PR_BASE head=$PR_HEAD ;;
@@ -117,18 +132,60 @@ jobs:
           rc=0
           scripts/ci-changes.sh "$base" "$head" >"$out" 2>"$err" || rc=$?
           cat "$out" "$err"
-          if [ "$(head -n 1 "$out")" = skip ] && [ $rc -eq 0 ]; then
-            build=false
-          else
-            build=true
+          verdict=$(head -n 1 "$out")
+          case $verdict in skip | boot | build) ;; *) verdict=build ;; esac
+          if [ $rc -ne 0 ] || [ "$EVENT" = workflow_dispatch ]; then
+            verdict=build
           fi
-          echo "build=$build" >>"$GITHUB_OUTPUT"
-          {
-            if [ $build = false ]; then
-              echo "No build-relevant changes; build and boot skipped."
+
+          # A failed fingerprint or lookup finds no pass: it builds.
+          fps=$(scripts/ci-changes.sh --fingerprint HEAD) || fps=
+          read -r image_fp boot_fp <<<"$fps" || true
+          mode=$verdict passed= reuse=
+          if [ "$verdict" != skip ] && [ "$EVENT" != workflow_dispatch ] &&
+            [ -n "$image_fp" ] && [ -n "$boot_fp" ]; then
+            # Passes of this image, newest first, as "<boot fp> <run id>".
+            prefix=build-and-boot-passed-$image_fp-
+            markers=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+              --jq ".artifacts[] | select(.expired | not)
+                | select(.workflow_run.head_repository_id == .workflow_run.repository_id)
+                | select(.name | startswith(\"$prefix\"))
+                | \"\(.name | ltrimstr(\"$prefix\")) \(.workflow_run.id)\"") || markers=
+            passed=$(awk -v b="$boot_fp" '$1 == b { print $2; exit }' <<<"$markers")
+            reuse=$(awk 'NF == 2 { print $2; exit }' <<<"$markers")
+            if [ -n "$passed" ]; then
+              mode=skip
+            elif [ -n "$reuse" ]; then
+              mode=boot
             else
-              echo "Build-relevant changes, or no base to compare with; building."
+              mode=build
             fi
+          fi
+          echo "verdict: $verdict; mode: $mode; image $image_fp, boot $boot_fp;" \
+            "passed in: ${passed:-none}; image from: ${reuse:-none}"
+          {
+            echo "mode=$mode"
+            echo "image_fp=$image_fp"
+            echo "boot_fp=$boot_fp"
+            echo "reuse=$reuse"
+          } >>"$GITHUB_OUTPUT"
+          runs=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs
+          {
+            if [ -n "$passed" ]; then
+              echo "This image and boot test already passed in run" \
+                "[$passed]($runs/$passed); build and boot skipped."
+            elif [ "$mode" = skip ]; then
+              echo "No change to the image or the boot test; build and boot skipped."
+            elif [ "$mode" = boot ]; then
+              echo "The image's inputs match the image run [$reuse]($runs/$reuse)" \
+                "built and passed; booting that image again, without building."
+            elif [ "$EVENT" = workflow_dispatch ]; then
+              echo "Manual run; building."
+            else
+              echo "The image's inputs changed, or no earlier run passed this image; building."
+            fi
+            echo
+            echo "Fingerprints: image \`${image_fp:-none}\`, boot \`${boot_fp:-none}\`"
             if [ $rc -ne 0 ]; then
               echo
               echo "scripts/ci-changes.sh exited $rc: $(cat "$err")"
@@ -145,7 +202,7 @@ jobs:
       # Below 20 GB free, remove preinstalled SDKs WipeOS never uses.
       - name: Free disk space
         id: disk
-        if: steps.decide.outputs.build == 'true'
+        if: steps.decide.outputs.mode == 'build'
         run: |
           free_gb() { df --output=avail -BG / | tail -n 1 | tr -dc 0-9; }
           before=$(free_gb)
@@ -161,27 +218,45 @@ jobs:
             exit 1
           fi
 
-      # Buildroot's host packages and the distribution's QEMU (D23), from
-      # the README's build-host list. libncurses-dev is left out: it is
-      # only for make menuconfig. seabios and ipxe-qemu are QEMU's BIOS
-      # and the default network card's boot ROM.
+      # The distribution's QEMU (D23) for the boots, and for a build,
+      # Buildroot's host packages from the README's build-host list.
+      # libncurses-dev is left out: it is only for make menuconfig.
+      # seabios and ipxe-qemu are QEMU's BIOS and the default network
+      # card's boot ROM.
       - name: Install packages
-        if: steps.decide.outputs.build == 'true'
+        if: steps.decide.outputs.mode != 'skip'
         env:
           DEBIAN_FRONTEND: noninteractive
+          MODE: ${{ steps.decide.outputs.mode }}
         run: |
+          packages=(qemu-system-x86 seabios ipxe-qemu)
+          if [ "$MODE" = build ]; then
+            packages+=(build-essential bc bzip2 cpio diffutils file findutils
+              gzip patch perl python3 rsync sed tar unzip wget git)
+          fi
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential bc bzip2 cpio diffutils file findutils gzip \
-            patch perl python3 rsync sed tar unzip wget git \
-            qemu-system-x86 seabios ipxe-qemu
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
           qemu-system-x86_64 --version
+
+      # Boot mode (D56): the image an earlier run built from the same
+      # inputs and passed, from that run's bzImage artifact, where run.sh
+      # --no-build looks for it.
+      - name: Fetch the passed image
+        id: fetch
+        if: steps.decide.outputs.mode == 'boot'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.decide.outputs.reuse }}
+        run: |
+          mkdir -p buildroot/output/images
+          gh run download "$RUN" -n bzImage -D buildroot/output/images
+          ls -l buildroot/output/images/bzImage
 
       # The version in configs/buildroot.version, as on a build host
       # (D47). The defconfig takes the kernel's hash from that tag.
       - name: Clone Buildroot
         id: br
-        if: steps.decide.outputs.build == 'true'
+        if: steps.decide.outputs.mode == 'build'
         run: |
           version=$(cat configs/buildroot.version)
           git clone --depth 1 --branch "$version" \
@@ -193,7 +268,7 @@ jobs:
       # fetches what's missing.
       - name: Restore downloads
         id: dl
-        if: steps.decide.outputs.build == 'true'
+        if: steps.decide.outputs.mode == 'build'
         uses: actions/cache/restore@v6
         with:
           path: buildroot/dl
@@ -202,7 +277,7 @@ jobs:
 
       - name: Build
         id: build
-        if: steps.decide.outputs.build == 'true'
+        if: steps.decide.outputs.mode == 'build'
         run: |
           mkdir -p logs/ci
           start=$(date +%s)
@@ -237,7 +312,7 @@ jobs:
       # usable (D39, D48). There is no fallback: if it doesn't work, the
       # kvm boot below fails.
       - name: Enable KVM
-        if: steps.build.outcome == 'success'
+        if: steps.build.outcome == 'success' || steps.fetch.outcome == 'success'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
             sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -245,12 +320,12 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm || true
 
-      # Four boots of the image just built (D48), each forcing its mode so
-      # a broken KVM setup can't quietly pass under TCG. Every case runs
-      # even if an earlier one failed; the step fails if any case didn't
-      # give its expected exit code (D30) and log line.
+      # Four boots of the image just built or fetched (D48), each forcing
+      # its mode so a broken KVM setup can't quietly pass under TCG. Every
+      # case runs even if an earlier one failed; the step fails if any
+      # case didn't give its expected exit code (D30) and log line.
       - name: Boot
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.fetch.outcome == 'success') }}
         run: |
           results=$RUNNER_TEMP/boots.tsv
           : >"$results"
@@ -283,8 +358,10 @@ jobs:
 
       # D49: build time, image size and the boot table, on the run's page.
       - name: Summary
-        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        if: ${{ !cancelled() && steps.decide.outputs.mode != 'skip' }}
         env:
+          MODE: ${{ steps.decide.outputs.mode }}
+          REUSE: ${{ steps.decide.outputs.reuse }}
           BUILD: ${{ steps.build.outcome }}
           BUILD_S: ${{ steps.build.outputs.seconds }}
           DL_HIT: ${{ steps.dl.outputs.cache-hit }}
@@ -294,14 +371,17 @@ jobs:
           DISK_END: ${{ steps.build.outputs.end_gb }}
         run: |
           image=buildroot/output/images/bzImage
-          if [ -n "$BUILD_S" ]; then
+          if [ "$MODE" = boot ]; then
+            took="not built: reused the image from run [$REUSE]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE)"
+          elif [ -n "$BUILD_S" ]; then
             took="$((BUILD_S / 60)) min $((BUILD_S % 60)) s ($BUILD_S s)"
           else
             took="didn't run"
           fi
-          case $DL_HIT in
-          true) dl="exact hit, \`$DL_KEY\`" ;;
-          false) dl="partial, restored from \`$DL_KEY\`" ;;
+          case $MODE:$DL_HIT in
+          boot:*) dl="not used (no build)" ;;
+          *:true) dl="exact hit, \`$DL_KEY\`" ;;
+          *:false) dl="partial, restored from \`$DL_KEY\`" ;;
           *) dl="miss (cold)" ;;
           esac
           {
@@ -316,7 +396,9 @@ jobs:
               echo "| \`bzImage\` | none |"
             fi
             echo "| Download cache | $dl |"
-            echo "| Free disk | ${DISK_BEFORE:-?} GB at start, ${DISK_START:-?} GB before the build, ${DISK_END:-?} GB after |"
+            if [ "$MODE" = build ]; then
+              echo "| Free disk | ${DISK_BEFORE:-?} GB at start, ${DISK_START:-?} GB before the build, ${DISK_END:-?} GB after |"
+            fi
             echo
             echo "### Boots"
             echo
@@ -334,7 +416,7 @@ jobs:
       # D49: kept 14 days, and public like the repository. Agents read
       # failures with gh run download <run-id> -n boot-logs.
       - name: Upload boot logs
-        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        if: ${{ !cancelled() && steps.decide.outputs.mode != 'skip' }}
         uses: actions/upload-artifact@v7
         with:
           name: boot-logs
@@ -344,11 +426,37 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+      # Uploaded in boot mode too, so every run with a pass marker holds
+      # the image it booted, for later boot-mode runs to fetch (D56).
       - name: Upload bzImage
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.fetch.outcome == 'success') }}
         uses: actions/upload-artifact@v7
         with:
           name: bzImage
           path: buildroot/output/images/bzImage
+          retention-days: 14
+          if-no-files-found: error
+
+      # D56: only after all four boots passed, and every step above
+      # succeeded, record that this image and boot test pass. A later run
+      # with both fingerprints skips; one with the same image fingerprint
+      # boots this run's bzImage; for as long as the marker is kept.
+      - name: Write the pass marker
+        if: steps.decide.outputs.mode != 'skip' && steps.decide.outputs.image_fp != '' && steps.decide.outputs.boot_fp != ''
+        env:
+          IMAGE_FP: ${{ steps.decide.outputs.image_fp }}
+          BOOT_FP: ${{ steps.decide.outputs.boot_fp }}
+          MODE: ${{ steps.decide.outputs.mode }}
+        run: |
+          printf 'image=%s\nboot=%s\nmode=%s\ncommit=%s\nrun=%s\n' "$IMAGE_FP" \
+            "$BOOT_FP" "$MODE" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            >"$RUNNER_TEMP/build-and-boot-passed.txt"
+
+      - name: Upload the pass marker
+        if: steps.decide.outputs.mode != 'skip' && steps.decide.outputs.image_fp != '' && steps.decide.outputs.boot_fp != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-and-boot-passed-${{ steps.decide.outputs.image_fp }}-${{ steps.decide.outputs.boot_fp }}
+          path: ${{ runner.temp }}/build-and-boot-passed.txt
           retention-days: 14
           if-no-files-found: error

@@ -48,7 +48,7 @@ Three kinds of machine, each with its own job (D38). `uname -m` tells you where 
 | Machine | What it is | What runs there |
 | --- | --- | --- |
 | Laptop | Windows on Arm, WSL2 with Ubuntu 26.04, **aarch64**, 8 cores, 8 GB | Editing, Claude Code, lint, the self-tests, git and `gh`, SSH to the cluster. No builds or boots. |
-| GitHub-hosted runners | x86_64: the lint job in an `ubuntu:26.04` container, the build job on the `ubuntu-24.04` runner itself | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check; and, when a build-relevant file changed, the build and four boots (D46–D49) |
+| GitHub-hosted runners | x86_64: the lint job in an `ubuntu:26.04` container, the build job on the `ubuntu-24.04` runner itself | CI on every pull request to `main` and every push to `main` (D43): lint, both self-tests, the index check; and, when a build-relevant file changed, the build and four boots (D47–D49, D56) |
 | Cluster | x86_64 Linux servers, reached over SSH | Builds and QEMU boots, with KVM where the node has it (D39). I run these. |
 
 The target is **x86_64** (D17). Buildroot cross-compiles the image with its own toolchain, and lint compiles for x86_64 on every machine (D42).
@@ -81,7 +81,7 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/.claude/settings.json` | Claude Code permissions for this project. Don't edit it. |
 | `~/wipeOS/.claude/hooks/` | Claude Code hooks: the lint guard and lint hook (D34, D33), the build guard (D35, D40, D54), the git guard (D44) and the index check at Stop (D36) |
 | `~/wipeOS/.claude/skills/` | One skill per agent role in GitHub: `plan-next`, `revise-spec`, `build-plan`, `fix-pr`, `review-pr`, `respec` (D52) |
-| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43); build and boot (D46–D49) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, the self-tests and the index check on pull requests and `main` (D43); build and boot (D47–D49, D56) |
 | `~/wipeOS/.github/workflows/agents.yml` | Agents in GitHub: the gate, then one job per role (D50–D54) |
 | `~/wipeOS/scripts/agent-gate.py`, `agent-gate-selftest.sh` | Decides which agent, if any, an event starts, and its self-test (D51, D53) |
 | `~/wipeOS/buildroot` | Upstream Buildroot checkout, used on build hosts. Run every `make` from here. Don't edit files in it unless I ask. |
@@ -90,7 +90,7 @@ The project folder is `~/wipeOS`, with capital "OS". Use that exact spelling in 
 | `~/wipeOS/scripts/run.sh` | The launcher: builds, boots in QEMU, logs to `logs/`, exits by the result (D30) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the hooks in `.claude/hooks/` (D37) |
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches the kernel's `checkpatch.pl` for lint into `.cache/` (D41) |
-| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds, from the changed paths (D46) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI's build and boot job builds, only boots a passed image again, or skips: from the changed paths, and fingerprints of the image and boot-test inputs (D56) |
 | `~/wipeOS/configs/buildroot.version` | The Buildroot release tag that build hosts and CI clone (D47) |
 | `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
 | `~/wipeOS/src/stub/` | The stub, process 1 (D25): C source and Makefile |
@@ -172,7 +172,7 @@ This covers wipe and fill paths, memory discovery, label generation, the challen
 
 ## Verifying changes
 
-- **On the laptop:** run lint and the self-tests that cover the change (`scripts/lint.sh`, `scripts/lint-selftest.sh`, `scripts/hooks-selftest.sh`, `scripts/agent-gate-selftest.sh`, `scripts/context_index.py --check`). Then push the branch and read the CI result on the pull request: `gh pr checks`, or `gh run view --log-failed` on failure. A change that needs a boot, or a `bzImage` size, is verified by the **`build and boot`** check (D46–D49): read its summary (build time, `bzImage` size, the four boot cases) with `gh run view <run-id>`, and its logs with `gh run download <run-id> -n boot-logs`. A cluster run is needed only for hardware CI can't provide; say so in the report.
+- **On the laptop:** run lint and the self-tests that cover the change (`scripts/lint.sh`, `scripts/lint-selftest.sh`, `scripts/hooks-selftest.sh`, `scripts/agent-gate-selftest.sh`, `scripts/context_index.py --check`). Then push the branch and read the CI result on the pull request: `gh pr checks`, or `gh run view --log-failed` on failure. A change that needs a boot, or a `bzImage` size, is verified by the **`build and boot`** check (D47–D49, D56): read its summary (build time, `bzImage` size, the four boot cases) with `gh run view <run-id>`, and its logs with `gh run download <run-id> -n boot-logs`. A cluster run is needed only for hardware CI can't provide; say so in the report.
 - **On a build host:** after a change, build with the narrowest target and, if relevant, boot in QEMU.
 - Report the commands you ran and what happened. "It compiles" is not "it works." If you couldn't verify something, say so plainly.
 

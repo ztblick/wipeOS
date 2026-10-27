@@ -1,9 +1,10 @@
 ---
 id: D46
 title: "Build and boot job, skipped when nothing build-relevant changed"
-status: accepted
+status: superseded
 date: 2026-10-26
 decided_in: docs/plans/build-and-boot-ci.md
+superseded_by: D56
 ---
 
 # D46: Build and boot job, skipped when nothing build-relevant changed
