@@ -18,7 +18,7 @@ A minimal Linux image for verifiable memory wipes. On each host in a pod, WipeOS
 
 Current as of Oct 26, 2026. Update this section whenever the configuration changes.
 
-**Where things run (D38).** Builds and boots run on x86_64 Linux build hosts: the cluster, or any x86_64 Linux machine. My laptop (Windows on Arm, WSL2) is a workstation for editing, Claude Code, lint, git and SSH, and doesn't build or boot (D40). CI runs lint, the self-tests and the index check on every pull request to `main` and every push to `main` (D43).
+**Where things run (D38).** Builds and boots run on x86_64 Linux build hosts: the cluster, or any x86_64 Linux machine. My laptop (Windows on Arm, WSL2) is a workstation for editing, Claude Code, lint, git and SSH, and doesn't build or boot (D40). CI runs lint, the self-tests and the index check on every pull request to `main` and every push to `main` (D43). When a change touches what goes into the image or how it boots, CI also builds the image and boots it four times, under KVM and TCG (D46–D49).
 
 ### On a build host
 
@@ -76,7 +76,23 @@ These run on the laptop, on a build host and in CI:
 
 ### How changes reach main (D44)
 
-Work happens on a branch, `claude/<topic>` for agents, which is pushed and opened as a pull request to `main` (`gh pr create`). CI must pass, and only I merge. A ruleset on `main` requires a pull request and the CI check and blocks force pushes; `.claude/hooks/guard-git.py` stops agents from pushing to `main`, merging or approving.
+Work happens on a branch, `claude/<topic>` for agents, which is pushed and opened as a pull request to `main` (`gh pr create`). CI must pass, and only I merge. A ruleset on `main` requires a pull request and the CI checks and blocks force pushes; `.claude/hooks/guard-git.py` stops agents from pushing to `main`, merging or approving.
+
+### Build and boot in CI (D46–D49)
+
+The **`build and boot`** check builds the image on a GitHub-hosted runner and boots it with `scripts/run.sh` four times: `--accel kvm`, `--accel tcg`, `--test-fail` (expects exit 1) and `--mem 4`. `scripts/ci-changes.sh` decides first whether anything that can change the image or the boot changed (`src/`, `package/`, `configs/`, the external-tree files, `run.sh`, the script itself, or the workflow). If not, the check passes in seconds and its summary says so. The run's summary page shows the build time, the `bzImage` size and the boot table, and the run keeps two artifacts for 14 days: `boot-logs` (the four boot logs and the last 200 lines of the build log) and `bzImage`.
+
+**Booting an image built by CI.** On a build host with `gh` installed and logged in (`gh auth login`), fetch the image from a run instead of building it:
+
+```bash
+cd ~/wipeOS
+gh run list --workflow CI --branch main --limit 5
+gh run download <run-id> -n bzImage -D buildroot/output/images
+scripts/run.sh --no-build
+gh run download <run-id> -n boot-logs -D logs/ci-<run-id>
+```
+
+`gh run download -n <name>` fetches one artifact by name, and `-D` says where to unpack it. The last command fetches the CI boot logs to compare with your own.
 
 ### Set up on a new machine
 
@@ -130,12 +146,12 @@ echo 'export PATH=$HOME/opt/bin:$PATH' >> ~/.bashrc
 
 `apt-get download` and `dpkg -x` fetch and unpack packages without installing them, so they need no root. The wrapper points QEMU at the unpacked libraries, its modules (Ubuntu builds TCG as a loadable module) and its firmware directories (`-L`: the BIOS and the network card's boot ROM), which it would otherwise look for under `/usr`. `libfdt1` and `liburing2` were the only libraries the cluster lacked; on another host, `LD_LIBRARY_PATH=~/opt/qemu/usr/lib/x86_64-linux-gnu ldd ~/opt/qemu/usr/bin/qemu-system-x86_64 | grep 'not found'` lists any others to download the same way.
 
-The repo is public, so a build host can clone it over HTTPS without a GitHub key. Buildroot must be exactly the tag below: the defconfig takes the kernel's hash from that tag's `board/qemu/patches`.
+The repo is public, so a build host can clone it over HTTPS without a GitHub key. Buildroot must be exactly the tag in `configs/buildroot.version`, which CI reads too (D47): the defconfig takes the kernel's hash from that tag's `board/qemu/patches`.
 
 ```bash
 git clone https://github.com/ztblick/wipeOS.git ~/wipeOS
 cd ~/wipeOS
-git clone --branch 2026.02.3 https://gitlab.com/buildroot.org/buildroot.git buildroot
+git clone --branch "$(cat configs/buildroot.version)" https://gitlab.com/buildroot.org/buildroot.git buildroot
 cd buildroot
 make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig
 make
@@ -154,12 +170,14 @@ To commit from a build host, also run `git config core.hooksPath .githooks`, ins
 | `~/wipeOS/scripts/lint.sh`, `lint-selftest.sh` | Lint for C, and its self-test (D33) |
 | `~/wipeOS/scripts/fetch-checkpatch.sh` | Fetches `checkpatch.pl` for lint into `.cache/` (D41) |
 | `~/wipeOS/scripts/hooks-selftest.sh` | Self-test for the Claude Code hooks (D37) |
-| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43) |
+| `~/wipeOS/.github/workflows/ci.yml` | CI: lint, self-tests and index check (D43); build and boot (D46–D49) |
+| `~/wipeOS/scripts/ci-changes.sh` | Decides whether CI builds and boots (D46) |
 | `~/wipeOS/src/stub/` | The stub's C source (`main.c`, `report.c`, `util.c`, `wipeos.h`) and Makefile |
 | `~/wipeOS/package/wipeos-stub/` | The Buildroot package that builds and installs the stub |
 | `~/wipeOS/external.desc`, `Config.in`, `external.mk` | What makes the repo a Buildroot external tree |
 | `~/wipeOS/configs/linux.config` | Pruned kernel config |
 | `~/wipeOS/configs/wipeOS_x86_64_defconfig` | Buildroot settings |
+| `~/wipeOS/configs/buildroot.version` | The Buildroot release to clone, for build hosts and CI (D47) |
 | `~/wipeOS/logs/` | Boot and build logs from `run.sh` (gitignored) |
 | `~/wipeOS/.cache/` | Downloaded tools, such as checkpatch (gitignored) |
 | `~/wipeOS/buildroot` | Buildroot checkout, on build hosts; run every `make` from here |

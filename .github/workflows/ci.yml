@@ -1,9 +1,16 @@
-# Fast CI (D43): lint, the lint and hooks self-tests, and the context
-# index check, on every pull request to main and every push to main.
-# No build or boot yet; that is plan 2. The job runs in the ubuntu:26.04
-# container so gcc and cppcheck are the same releases as on the laptop
-# (D42). Protected like the lint scripts (D34): a weakened workflow is a
-# way around the lint.
+# CI on every pull request to main and every push to main, and by hand
+# (workflow_dispatch). Two jobs, each a check the ruleset on main
+# requires (D44):
+#
+#   lint and self-tests (D43): lint, the lint and hooks self-tests, and
+#     the context index check, in the ubuntu:26.04 container so gcc and
+#     cppcheck are the same releases as on the laptop (D42).
+#   build and boot (D46-D49): builds the image with Buildroot and boots
+#     it with scripts/run.sh under KVM and TCG. It passes in seconds
+#     when nothing build-relevant changed (scripts/ci-changes.sh).
+#
+# Protected like the lint scripts (D34): a weakened workflow is a way
+# around the lint and the boot test.
 name: CI
 
 on:
@@ -11,6 +18,7 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
 
 # Read-only and no secrets, so pull requests from forks are safe.
 permissions:
@@ -64,3 +72,279 @@ jobs:
 
       - name: Context index is current
         run: scripts/context_index.py --check
+
+  build:
+    name: build and boot
+    # On the runner itself, not in a container: it matches the cluster's
+    # Ubuntu 24.04, and the boots need /dev/kvm (D46).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    defaults:
+      run:
+        # bash -eo pipefail, so a failure inside a pipe fails the step.
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          # All history, so the change check can find the merge base.
+          fetch-depth: 0
+
+      # The job always runs, because a required check that never runs
+      # leaves a pull request unmergeable; this step decides whether the
+      # rest does (D46). A pull request is compared from its merge base
+      # with the base branch, a push to main with the previous head, and
+      # a manual run has no base, so it builds. Anything but a clear
+      # "skip" builds.
+      - name: Decide whether to build
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case $EVENT in
+          pull_request) base=$PR_BASE head=$PR_HEAD ;;
+          push) base=$PUSH_BEFORE head=$GITHUB_SHA ;;
+          *) base= head=$GITHUB_SHA ;;
+          esac
+          out=$RUNNER_TEMP/changes.txt err=$RUNNER_TEMP/changes.err
+          rc=0
+          scripts/ci-changes.sh "$base" "$head" >"$out" 2>"$err" || rc=$?
+          cat "$out" "$err"
+          if [ "$(head -n 1 "$out")" = skip ] && [ $rc -eq 0 ]; then
+            build=false
+          else
+            build=true
+          fi
+          echo "build=$build" >>"$GITHUB_OUTPUT"
+          {
+            if [ $build = false ]; then
+              echo "No build-relevant changes; build and boot skipped."
+            else
+              echo "Build-relevant changes, or no base to compare with; building."
+            fi
+            if [ $rc -ne 0 ]; then
+              echo
+              echo "scripts/ci-changes.sh exited $rc: $(cat "$err")"
+            fi
+            echo
+            echo "Changed paths (base \`${base:-none}\`, head \`$head\`):"
+            echo
+            echo '```'
+            tail -n +2 "$out"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # The build needs about 11 GB for buildroot/output and dl (README).
+      # Below 20 GB free, remove preinstalled SDKs WipeOS never uses.
+      - name: Free disk space
+        id: disk
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          free_gb() { df --output=avail -BG / | tail -n 1 | tr -dc 0-9; }
+          before=$(free_gb)
+          if [ "$before" -lt 20 ]; then
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+              /usr/local/.ghcup
+          fi
+          echo "before_gb=$before" >>"$GITHUB_OUTPUT"
+          echo "start_gb=$(free_gb)" >>"$GITHUB_OUTPUT"
+          echo "free: $before GB, $(free_gb) GB after cleanup"
+          if [ "$(free_gb)" -lt 20 ]; then
+            echo "::error::only $(free_gb) GB free; the build needs about 11 GB plus headroom"
+            exit 1
+          fi
+
+      # Buildroot's host packages and the distribution's QEMU (D23), from
+      # the README's build-host list. libncurses-dev is left out: it is
+      # only for make menuconfig. seabios and ipxe-qemu are QEMU's BIOS
+      # and the default network card's boot ROM.
+      - name: Install packages
+        if: steps.decide.outputs.build == 'true'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bzip2 cpio diffutils file findutils gzip \
+            patch perl python3 rsync sed tar unzip wget git \
+            qemu-system-x86 seabios ipxe-qemu
+          qemu-system-x86_64 --version
+
+      # The version in configs/buildroot.version, as on a build host
+      # (D47). The defconfig takes the kernel's hash from that tag.
+      - name: Clone Buildroot
+        id: br
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          version=$(cat configs/buildroot.version)
+          git clone --depth 1 --branch "$version" \
+            https://gitlab.com/buildroot.org/buildroot.git buildroot
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      # Downloaded sources only (D47). The prefix restore reuses most of
+      # them after a config change; Buildroot checks each file's hash and
+      # fetches what's missing.
+      - name: Restore downloads
+        id: dl
+        if: steps.decide.outputs.build == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: buildroot/dl
+          key: br-dl-${{ steps.br.outputs.version }}-${{ hashFiles('configs/**', 'package/**') }}
+          restore-keys: br-dl-${{ steps.br.outputs.version }}-
+
+      - name: Build
+        id: build
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          mkdir -p logs/ci
+          start=$(date +%s)
+          rc=0
+          (cd buildroot && make BR2_EXTERNAL=.. wipeOS_x86_64_defconfig &&
+            make) >logs/ci/build.log 2>&1 || rc=$?
+          seconds=$(($(date +%s) - start))
+          tail -n 200 logs/ci/build.log >logs/ci/build-tail.log
+          echo "seconds=$seconds" >>"$GITHUB_OUTPUT"
+          echo "end_gb=$(df --output=avail -BG / | tail -n 1 | tr -dc 0-9)" \
+            >>"$GITHUB_OUTPUT"
+          df -h /
+          echo "build: exit $rc after $seconds s"
+          if [ $rc -ne 0 ]; then
+            tail -n 50 logs/ci/build.log
+            exit $rc
+          fi
+          ls -l buildroot/output/images/bzImage
+
+      # Saved only after a successful build, so an early failure can't
+      # store a near-empty dl/ under a key that later runs would then hit
+      # and never replace.
+      - name: Save downloads
+        if: steps.build.outcome == 'success' && steps.dl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: buildroot/dl
+          key: ${{ steps.dl.outputs.cache-primary-key }}
+
+      # The runner has /dev/kvm, but only root and the kvm group may open
+      # it. This udev rule opens it to every user, so run.sh finds KVM
+      # usable (D39, D48). There is no fallback: if it doesn't work, the
+      # kvm boot below fails.
+      - name: Enable KVM
+        if: steps.build.outcome == 'success'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || true
+
+      # Four boots of the image just built (D48), each forcing its mode so
+      # a broken KVM setup can't quietly pass under TCG. Every case runs
+      # even if an earlier one failed; the step fails if any case didn't
+      # give its expected exit code (D30) and log line.
+      - name: Boot
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          results=$RUNNER_TEMP/boots.tsv
+          : >"$results"
+          failed=0
+          # boot CASE WANT_EXIT WANT_LINE RUN_SH_ARGS...
+          boot() {
+            local name=$1 want=$2 line=$3 rc=0 accel verdict
+            shift 3
+            local log=logs/ci/$name.log
+            echo "::group::$name: scripts/run.sh --no-build --log $log $*"
+            scripts/run.sh --no-build --log "$log" "$@" || rc=$?
+            echo "::endgroup::"
+            accel=$(grep -a -m 1 '^RUN git=' "$log" 2>/dev/null |
+              grep -o 'accel=[a-z]*' | cut -d= -f2 || true)
+            if [ $rc -eq "$want" ] && grep -aq -- "$line" "$log" 2>/dev/null; then
+              verdict=pass
+            else
+              verdict=fail
+              failed=1
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\n' "$name" "${accel:-none}" "$rc" \
+              "$want" "$verdict" >>"$results"
+            echo "$name: accel=${accel:-none}, exit $rc (want $want): $verdict"
+          }
+          boot kvm 0 '^RUN git=.* accel=kvm ' --accel kvm
+          boot tcg 0 '^RUN git=.* accel=tcg ' --accel tcg
+          boot test-fail 1 '^WIPEOS RESULT=FAIL' --test-fail
+          boot mem4 0 '^WIPEOS RESULT=SUCCESS' --mem 4
+          exit $failed
+
+      # D49: build time, image size and the boot table, on the run's page.
+      - name: Summary
+        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          BUILD_S: ${{ steps.build.outputs.seconds }}
+          DL_HIT: ${{ steps.dl.outputs.cache-hit }}
+          DL_KEY: ${{ steps.dl.outputs.cache-matched-key }}
+          DISK_BEFORE: ${{ steps.disk.outputs.before_gb }}
+          DISK_START: ${{ steps.disk.outputs.start_gb }}
+          DISK_END: ${{ steps.build.outputs.end_gb }}
+        run: |
+          image=buildroot/output/images/bzImage
+          if [ -n "$BUILD_S" ]; then
+            took="$((BUILD_S / 60)) min $((BUILD_S % 60)) s ($BUILD_S s)"
+          else
+            took="didn't run"
+          fi
+          case $DL_HIT in
+          true) dl="exact hit, \`$DL_KEY\`" ;;
+          false) dl="partial, restored from \`$DL_KEY\`" ;;
+          *) dl="miss (cold)" ;;
+          esac
+          {
+            echo "### Build"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Build | ${BUILD:-not run}, $took |"
+            if [ -f "$image" ]; then
+              echo "| \`bzImage\` | $(stat -c %s "$image") bytes |"
+            else
+              echo "| \`bzImage\` | none |"
+            fi
+            echo "| Download cache | $dl |"
+            echo "| Free disk | ${DISK_BEFORE:-?} GB at start, ${DISK_START:-?} GB before the build, ${DISK_END:-?} GB after |"
+            echo
+            echo "### Boots"
+            echo
+            if [ -s "$RUNNER_TEMP/boots.tsv" ]; then
+              echo "| Case | Accelerator | Exit | Expected | Result |"
+              echo "| --- | --- | --- | --- | --- |"
+              while IFS=$'\t' read -r name accel rc want verdict; do
+                echo "| \`$name\` | $accel | $rc | $want | $verdict |"
+              done <"$RUNNER_TEMP/boots.tsv"
+            else
+              echo "No boots ran."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # D49: kept 14 days, and public like the repository. Agents read
+      # failures with gh run download <run-id> -n boot-logs.
+      - name: Upload boot logs
+        if: ${{ !cancelled() && steps.decide.outputs.build == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: boot-logs
+          path: |
+            logs/ci/*.log
+            !logs/ci/build.log
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload bzImage
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bzImage
+          path: buildroot/output/images/bzImage
+          retention-days: 14
+          if-no-files-found: error
