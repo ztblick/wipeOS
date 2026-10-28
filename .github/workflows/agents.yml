@@ -48,6 +48,10 @@ permissions: {}
 # The Claude app's token comes from claude-code-action at this commit
 # (D50). Every role job uses the same pin.
 #   anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1.0.262
+# Every checkout sets persist-credentials: false. Otherwise checkout keeps
+# the job's read-only token as a git header in an included config file,
+# which the action doesn't remove, and git pushes with it instead of the
+# app's token in the remote URL (403, "denied to github-actions[bot]").
 
 jobs:
   gate:
@@ -204,6 +208,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
@@ -224,9 +229,21 @@ jobs:
       # The action hides Claude's output from the log. Keep the session's
       # messages, including its permission denials, as a short-lived
       # artifact instead; the repo is public, so anyone signed in to
-      # GitHub can download it.
-      - name: Upload the planner's transcript
+      # GitHub can download it. The remote URL carries the app's token,
+      # and git commands the agent may run print it, so blank out every
+      # GitHub token first.
+      - name: Redact tokens from the transcript
+        id: redact
         if: ${{ !cancelled() && steps.claude.outputs.execution_file != '' }}
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          sed -E -i \
+            -e 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/<redacted>/g' \
+            -e 's/x-access-token:[^@"[:space:]]+/x-access-token:<redacted>/g' \
+            "$EXECUTION_FILE"
+      - name: Upload the planner's transcript
+        if: ${{ !cancelled() && steps.redact.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: planner-transcript
@@ -276,6 +293,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
@@ -325,6 +343,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
@@ -379,6 +398,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - id: start
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
       # Reads and comments only: no git writes, no push (D44, D55).
@@ -455,6 +475,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
@@ -549,6 +570,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
@@ -600,6 +622,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Lint tools
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends cppcheck && scripts/fetch-checkpatch.sh && git config core.hooksPath .githooks
       - id: start
